@@ -1,0 +1,50 @@
+syntax: glob
+*.pyc
+*~
+
+# test coverage files
+.coverage
+
+# master/slaveinfo.py contains the passwords, so it should never be tracked
+master/slaveinfo.py
+bbhook/smtp.password
+
+# ignore pidfiles and all the logs
+twistd.pid
+twistd.log*
+httpd.log*
+http.log*
+
+# ignore all the builders dir (which can be both in master/ and in slave/)
+*-arm-32
+*-armel*
+*-armhf*
+*-benchmark-x86-64
+*-freebsd-7-x86-64
+*-linux-x86-32
+*-linux-x86-32vm
+*-linux-x86-64
+*-linux-x86-64-2
+*-linux-x86-642
+*-macosx-x86-32
+*-macosx-x86-64
+*-macos-arm64
+*-macosx-arm64
+*-macos-x86-64
+*-maemo
+*-maemo-build
+*-ppc-32
+*-ppc-64
+*-win-32
+*-win-x86-32
+*-win-x86-64
+*-aarch64
+*-s390x
+*-freebsd-8-x86-64
+*-freebsd-9-x86-64
+*-benchmark-linux-x86-64-single-run
+slave/pypy-buildbot
+master/pypy-buildbot
+*.swp
+master/state.sqlite
+gitpoller-workdir/
