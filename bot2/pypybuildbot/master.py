@@ -239,13 +239,17 @@ pypyJITTranslatedTestFactoryAARCH64 = pypybuilds.Translated(
     pypyjit=True,
     app_tests=True)
 
-pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker')
+pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker',
+                                                         upload_credentials=upload_credentials)
 pypyJITBenchmarkFactory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker',
-                                                           postfix='-64')
+                                                           postfix='-64',
+                                                           upload_credentials=upload_credentials)
 pypyJITBenchmark2Factory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker2',
                                                            postfix='-64')
+                                                           postfix='-64',
+                                                           upload_credentials=upload_credentials)
 pypyJITBenchmarkFactory64_speed = pypybuilds.JITBenchmarkSingleRun(
     platform='linux64',
     host='speed_python',

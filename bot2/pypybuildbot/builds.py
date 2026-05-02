@@ -896,7 +896,8 @@ class JITBenchmarkSingleRun(factory.BuildFactory):
                                          workdir="."))
 
 class JITBenchmark(factory.BuildFactory):
-    def __init__(self, platform='linux', host='benchmarker', postfix=''):
+    def __init__(self, platform='linux', host='benchmarker', postfix='',
+                 upload_credentials=None):
         factory.BuildFactory.__init__(self)
 
         #
@@ -986,21 +987,10 @@ class JITBenchmark(factory.BuildFactory):
                      '--changed', target,
                      '--baseline', target,
                      '--args', ',--jit off',
-                     '--upload',
-                     '--upload-executable', exe + postfix,
-                     '--upload-project', project,
-                     # use only the hash in the revision
                      '--revision', rev,
                      '--branch', branch,
-                     '--upload-urls', 'https://speed.pypy.org/',
-                     '--upload-baseline',
-                     '--upload-baseline-executable', exe + '-jit' + postfix,
-                     '--upload-baseline-project', project,
-                     '--upload-baseline-revision', rev,
-                     '--upload-baseline-branch', branch,
-                     '--upload-baseline-urls', 'https://speed.pypy.org/',
-                     ] 
-            return command  
+                     ]
+            return command
 
         self.addStep(ShellCmd(
             # this step needs exclusive access to the CPU
@@ -1009,7 +999,111 @@ class JITBenchmark(factory.BuildFactory):
             command=get_cmd,
             workdir='./benchmarks',
             timeout=3600))
-        # a bit obscure hack to get both os.path.expand and a property
+
+        upload_env = {}
+        if upload_credentials:
+            upload_env = {
+                'SPEED_UPLOAD_USER': upload_credentials.get('username', ''),
+                'SPEED_UPLOAD_PASSWORD': upload_credentials.get('password', ''),
+            }
+
+        # Push bulk_upload.py to the slave so upload steps can use it
+        self.addStep(transfer.FileDownload(
+            mastersrc=os.path.join(os.path.dirname(__file__), 'bulk_upload.py'),
+            slavedest='bulk_upload.py',
+            workdir='.'))
+
+        def _props_for_upload(props):
+            target = props.getProperty('target_path')
+            exe = os.path.split(target)[-1][:-2]
+            project = props.getProperty('project', default='PyPy')
+            rev = props.getProperty('got_revision').split(':')[-1]
+            branch = props.getProperty('branch') or 'main'
+            if branch == 'None':
+                branch = 'main'
+            return exe, project, rev, branch
+
+        @renderer
+        def get_upload_changed_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
+                    '-e', exe + postfix, '-H', host,
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', 'https://speed.pypy.org/']
+
+        @renderer
+        def get_upload_baseline_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
+                    '-e', exe + '-jit' + postfix, '-H', host,
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', 'https://speed.pypy.org/',
+                    '--baseline']
+
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-off)',
+            command=get_upload_changed_cmd,
+            env=upload_env,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-on)',
+            command=get_upload_baseline_cmd,
+            env=upload_env,
+            workdir='.'))
+
+        # Pyperformance: only when the target binary is pypy3*
+        def is_py3_target(step):
+            target = step.build.getProperty('target_path') or ''
+            return os.path.basename(target).startswith('pypy3')
+
+        @renderer
+        def get_pyperformance_venv_cmd(props):
+            target = props.getProperty('target_path')
+            return [target, '-m', 'venv', 'pyperformance_venv']
+
+        @renderer
+        def get_pyperformance_install_cmd(props):
+            return ['./pyperformance_venv/bin/pip', 'install', '--upgrade',
+                    'pyperformance']
+
+        @renderer
+        def get_pyperformance_run_cmd(props):
+            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
+                    'run', '--output', 'pyperformance_result.json']
+
+        @renderer
+        def get_pyperformance_upload_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
+                    '-e', exe + postfix, '-H', host,
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', 'https://speed.pypy.org/']
+
+        self.addStep(ShellCmd(
+            description='create pyperformance venv',
+            command=get_pyperformance_venv_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='install pyperformance',
+            command=get_pyperformance_install_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='run pyperformance',
+            command=get_pyperformance_run_cmd,
+            locks=[lock.access('exclusive')],
+            doStepIf=is_py3_target,
+            workdir='.',
+            timeout=7200))
+        self.addStep(ShellCmd(
+            description='upload pyperformance results',
+            command=get_pyperformance_upload_cmd,
+            env=upload_env,
+            doStepIf=is_py3_target,
+            workdir='.'))
+
+        # Archive the legacy result file on the master
         filename = '%(got_revision)s' + (postfix or '')
         resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
