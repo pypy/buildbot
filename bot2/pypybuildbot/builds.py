@@ -404,8 +404,7 @@ def setup_steps(platform, factory, workdir=None,
                 repourl='https://github.com/pypy/pypy/',
                 force_branch=None):
     factory.addStep(shell.SetPropertyFromCommand(
-            command=['python', '-c', "import tempfile, os ;print"
-                     " tempfile.gettempdir() + os.path.sep"],
+            command=['python', '-c', "import tempfile, os; print(tempfile.gettempdir() + os.path.sep)"],
             property="target_tmpdir",
             env={'TMPDIR': "${TMPDIR}"},
     ))
@@ -1000,12 +999,22 @@ class JITBenchmark(factory.BuildFactory):
             workdir='./benchmarks',
             timeout=3600))
 
-        upload_env = {}
+        upload_env = {
+            'SPEED_UPLOAD_URL': os.environ.get('SPEED_UPLOAD_URL', 'https://speed.pypy.org/'),
+            'SPEED_UPLOAD_HOST': os.environ.get('SPEED_UPLOAD_HOST', host),
+        }
         if upload_credentials:
-            upload_env = {
-                'SPEED_UPLOAD_USER': upload_credentials.get('username', ''),
-                'SPEED_UPLOAD_PASSWORD': upload_credentials.get('password', ''),
-            }
+            upload_env['SPEED_UPLOAD_USER'] = upload_credentials.get('username', '')
+            upload_env['SPEED_UPLOAD_PASSWORD'] = upload_credentials.get('password', '')
+
+        def extract_upload_config(rc, stdout, stderr):
+            return {'upload_url': upload_env['SPEED_UPLOAD_URL'],
+                    'upload_host': upload_env['SPEED_UPLOAD_HOST']}
+        self.addStep(shell.SetPropertyFromCommand(
+            command=['python', '-c', 'print("ok")'],
+            extract_fn=extract_upload_config,
+            description='set upload config',
+        ))
 
         # Push bulk_upload.py to the slave so upload steps can use it
         self.addStep(transfer.FileDownload(
@@ -1027,17 +1036,17 @@ class JITBenchmark(factory.BuildFactory):
         def get_upload_changed_cmd(props):
             exe, project, rev, branch = _props_for_upload(props)
             return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
-                    '-e', exe + postfix, '-H', host,
+                    '-e', exe + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
                     '-P', project, '-r', rev, '-B', branch,
-                    '-u', 'https://speed.pypy.org/']
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
 
         @renderer
         def get_upload_baseline_cmd(props):
             exe, project, rev, branch = _props_for_upload(props)
             return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
-                    '-e', exe + '-jit' + postfix, '-H', host,
+                    '-e', exe + '-jit' + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
                     '-P', project, '-r', rev, '-B', branch,
-                    '-u', 'https://speed.pypy.org/',
+                    '-u', upload_env['SPEED_UPLOAD_URL'],
                     '--baseline']
 
         self.addStep(ShellCmd(
@@ -1075,9 +1084,9 @@ class JITBenchmark(factory.BuildFactory):
         def get_pyperformance_upload_cmd(props):
             exe, project, rev, branch = _props_for_upload(props)
             return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
-                    '-e', exe + postfix, '-H', host,
+                    '-e', exe + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
                     '-P', project, '-r', rev, '-B', branch,
-                    '-u', 'https://speed.pypy.org/']
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
 
         self.addStep(ShellCmd(
             description='create pyperformance venv',

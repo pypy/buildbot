@@ -211,7 +211,7 @@ def main():
     auth_note = f" as {username!r}" if username and password else " (no credentials)"
 
     print(f"Uploading {len(records)} results ({fmt} format) "
-          f"for {args.executable!r} to {args.url}{auth_note}")
+          f"for {args.executable!r} env {args.host!r} to {args.url}{auth_note}")
     send_bulk(records, args.url, username=username, password=password)
     print("Done.")
 
