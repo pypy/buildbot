@@ -1,0 +1,18 @@
+29a30,37
+>         # SQLite 3.26.0+ propagates RENAME TABLE into FK references in other
+>         # tables, which breaks the migration_tmp pattern.  legacy_alter_table
+>         # restores the pre-3.26.0 behaviour for the duration of this rename.
+>         try:
+>             self.connection.execute('PRAGMA legacy_alter_table = ON')
+>         except Exception:
+>             pass
+> 
+45c53,58
+<         
+---
+> 
+>         try:
+>             self.connection.execute('PRAGMA legacy_alter_table = OFF')
+>         except Exception:
+>             pass
+> 
