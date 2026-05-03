@@ -956,12 +956,23 @@ class JITBenchmark(factory.BuildFactory):
         else:
             assert False, 'unknown host %s' % host
 
-        def extract_info(rc, stdout, stderr):
-            if rc == 0:
-                return json.loads(stdout)
-            else:
-                return {}
-        
+        upload_env = {
+            'SPEED_UPLOAD_URL': os.environ.get('SPEED_UPLOAD_URL', 'https://speed.pypy.org/'),
+            'SPEED_UPLOAD_HOST': os.environ.get('SPEED_UPLOAD_HOST', host),
+        }
+        if upload_credentials:
+            upload_env['SPEED_UPLOAD_USER'] = upload_credentials.get('username', '')
+            upload_env['SPEED_UPLOAD_PASSWORD'] = upload_credentials.get('password', '')
+
+        def extract_upload_config(rc, stdout, stderr):
+            return {'upload_url': upload_env['SPEED_UPLOAD_URL'],
+                    'upload_host': upload_env['SPEED_UPLOAD_HOST']}
+        self.addStep(shell.SetPropertyFromCommand(
+            command=['python', '-c', 'print("ok")'],
+            extract_fn=extract_upload_config,
+            description='set upload config',
+        ))
+
         self.addStep(
             Translate(
                 translationArgs=['-Ojit'],
@@ -998,23 +1009,6 @@ class JITBenchmark(factory.BuildFactory):
             command=get_cmd,
             workdir='./benchmarks',
             timeout=3600))
-
-        upload_env = {
-            'SPEED_UPLOAD_URL': os.environ.get('SPEED_UPLOAD_URL', 'https://speed.pypy.org/'),
-            'SPEED_UPLOAD_HOST': os.environ.get('SPEED_UPLOAD_HOST', host),
-        }
-        if upload_credentials:
-            upload_env['SPEED_UPLOAD_USER'] = upload_credentials.get('username', '')
-            upload_env['SPEED_UPLOAD_PASSWORD'] = upload_credentials.get('password', '')
-
-        def extract_upload_config(rc, stdout, stderr):
-            return {'upload_url': upload_env['SPEED_UPLOAD_URL'],
-                    'upload_host': upload_env['SPEED_UPLOAD_HOST']}
-        self.addStep(shell.SetPropertyFromCommand(
-            command=['python', '-c', 'print("ok")'],
-            extract_fn=extract_upload_config,
-            description='set upload config',
-        ))
 
         # Push bulk_upload.py to the slave so upload steps can use it
         self.addStep(transfer.FileDownload(
