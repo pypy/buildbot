@@ -197,6 +197,9 @@ def main():
     if not args.revision:
         parser.error('--revision is required (could not read from file)')
 
+    if not args.url.endswith('/'):
+        args.url += '/'
+
     if fmt == 'legacy':
         raw = parse_legacy(data, changed=not args.baseline)
         records = [
