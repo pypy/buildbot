@@ -8,6 +8,7 @@ from buildbot.process.properties import WithProperties, Interpolate, Property, r
 from buildbot import locks
 from pypybuildbot.util import symlink_force
 from buildbot.status.results import SKIPPED, SUCCESS
+import glob
 import os
 import json
 
@@ -1078,6 +1079,27 @@ class JITBenchmark(factory.BuildFactory):
         def get_pyperformance_upload_cmd(props):
             exe, project, rev, branch = _props_for_upload(props)
             return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
+                    '-e', exe + '-jit' + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
+
+        @renderer
+        def get_pyperformance_nojit_wrapper_cmd(props):
+            target = props.getProperty('target_path')
+            script = '#!/bin/sh\nexec %s --jit off "$@"\n' % target
+            return ['python3', '-c',
+                    'open("pypy_nojit","w").write(%r);import os;os.chmod("pypy_nojit",0o755)' % script]
+
+        @renderer
+        def get_pyperformance_nojit_run_cmd(props):
+            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
+                    'run', '--output', 'pyperformance_nojit_result.json',
+                    '--python', './pypy_nojit']
+
+        @renderer
+        def get_pyperformance_nojit_upload_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'pyperformance_nojit_result.json',
                     '-e', exe + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
                     '-P', project, '-r', rev, '-B', branch,
                     '-u', upload_env['SPEED_UPLOAD_URL']]
@@ -1092,16 +1114,57 @@ class JITBenchmark(factory.BuildFactory):
             command=get_pyperformance_install_cmd,
             doStepIf=is_py3_target,
             workdir='.'))
+
+        # Transfer all PyPy-compatibility patch scripts from master to worker,
+        # then apply them in a single step.
+        _patches_dir = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), '..', '..', '..', 'patches'))
+        for _patch_file in sorted(glob.glob(
+                os.path.join(_patches_dir, 'patch_*_pypy.py'))):
+            self.addStep(transfer.FileDownload(
+                mastersrc=_patch_file,
+                slavedest=os.path.basename(_patch_file),
+                doStepIf=is_py3_target,
+                workdir='.'))
         self.addStep(ShellCmd(
-            description='run pyperformance',
+            description='apply PyPy compatibility patches',
+            command=['python3', '-c',
+                     'import glob, subprocess, sys\n'
+                     'scripts = sorted(glob.glob("patch_*_pypy.py"))\n'
+                     'print("Applying patches:", scripts)\n'
+                     'for f in scripts:\n'
+                     '    subprocess.check_call([sys.executable, f])\n'],
+            doStepIf=is_py3_target,
+            workdir='.'))
+
+        self.addStep(ShellCmd(
+            description='run pyperformance (jit)',
             command=get_pyperformance_run_cmd,
             locks=[lock.access('exclusive')],
             doStepIf=is_py3_target,
             workdir='.',
             timeout=7200))
         self.addStep(ShellCmd(
-            description='upload pyperformance results',
+            description='upload pyperformance results (jit)',
             command=get_pyperformance_upload_cmd,
+            env=upload_env,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='create pyperformance nojit wrapper',
+            command=get_pyperformance_nojit_wrapper_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='run pyperformance (nojit)',
+            command=get_pyperformance_nojit_run_cmd,
+            locks=[lock.access('exclusive')],
+            doStepIf=is_py3_target,
+            workdir='.',
+            timeout=7200))
+        self.addStep(ShellCmd(
+            description='upload pyperformance results (nojit)',
+            command=get_pyperformance_nojit_upload_cmd,
             env=upload_env,
             doStepIf=is_py3_target,
             workdir='.'))
