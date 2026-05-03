@@ -143,6 +143,16 @@ def send_bulk(records, url, username=None, password=None):
             resp = opener.open(req)
             print(resp.read().decode())
             return
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors='replace')
+            print(f"Upload failed with HTTP {e.code}: {body}")
+            if e.code < 500:
+                sys.exit(1)
+            if not retries:
+                sys.exit(1)
+            delay = retries.pop(0)
+            print(f"Retrying in {delay}s...")
+            time.sleep(delay)
         except urllib.error.URLError:
             if not retries:
                 raise
