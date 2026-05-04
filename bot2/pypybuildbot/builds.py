@@ -1059,14 +1059,15 @@ class JITBenchmark(factory.BuildFactory):
             return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
                     'venv', 'recreate', '-p', target]
 
-        @renderer
-        def get_pyperformance_run_cmd(props):
-            target = props.getProperty('target_path')
-            return ['bash', '-c',
-                    'rm -f pyperformance_result.json && '
-                    './pyperformance_venv/bin/python -m pyperformance run -f '
-                    '--python ' + target + ' '
-                    '--output pyperformance_result.json']
+        def get_pyperformance_run_cmd(outfile):
+            @renderer
+            def _cmd(props):
+                target = props.getProperty('target_path')
+                return ['bash', '-c',
+                        'rm -f %s && '
+                        './pyperformance_venv/bin/python -m pyperformance run -f '
+                        '--python %s --output %s' % (outfile, target, outfile)]
+            return _cmd
 
         @renderer
         def get_pyperformance_upload_cmd(props):
@@ -1075,21 +1076,6 @@ class JITBenchmark(factory.BuildFactory):
                     '-e', exe + '-jit' + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
                     '-P', project, '-r', rev, '-B', branch,
                     '-u', upload_env['SPEED_UPLOAD_URL']]
-
-        @renderer
-        def get_pyperformance_nojit_wrapper_cmd(props):
-            target = props.getProperty('target_path')
-            script = '#!/bin/sh\nexec %s --jit off "$@"\n' % target
-            return ['python3', '-c',
-                    'open("pypy_nojit","w").write(%r);import os;os.chmod("pypy_nojit",0o755)' % script]
-
-        @renderer
-        def get_pyperformance_nojit_run_cmd(props):
-            return ['bash', '-c',
-                    'rm -f pyperformance_nojit_result.json && '
-                    './pyperformance_venv/bin/python -m pyperformance run -f '
-                    '--output pyperformance_nojit_result.json '
-                    '--python ./pypy_nojit']
 
         @renderer
         def get_pyperformance_nojit_upload_cmd(props):
@@ -1147,7 +1133,7 @@ class JITBenchmark(factory.BuildFactory):
 
         self.addStep(ShellCmd(
             description='run pyperformance (jit)',
-            command=get_pyperformance_run_cmd,
+            command=get_pyperformance_run_cmd('pyperformance_result.json'),
             locks=[lock.access('exclusive')],
             doStepIf=is_py3_target,
             workdir='.',
@@ -1159,13 +1145,9 @@ class JITBenchmark(factory.BuildFactory):
             doStepIf=is_py3_target,
             workdir='.'))
         self.addStep(ShellCmd(
-            description='create pyperformance nojit wrapper',
-            command=get_pyperformance_nojit_wrapper_cmd,
-            doStepIf=is_py3_target,
-            workdir='.'))
-        self.addStep(ShellCmd(
             description='run pyperformance (nojit)',
-            command=get_pyperformance_nojit_run_cmd,
+            command=get_pyperformance_run_cmd('pyperformance_nojit_result.json'),
+            env={'PYPY_DISABLE_JIT': '1'},
             locks=[lock.access('exclusive')],
             doStepIf=is_py3_target,
             workdir='.',
