@@ -1061,9 +1061,11 @@ class JITBenchmark(factory.BuildFactory):
 
         @renderer
         def get_pyperformance_run_cmd(props):
+            target = props.getProperty('target_path')
             return ['bash', '-c',
                     'rm -f pyperformance_result.json && '
                     './pyperformance_venv/bin/python -m pyperformance run -f '
+                    '--python ' + target + ' '
                     '--output pyperformance_result.json']
 
         @renderer
