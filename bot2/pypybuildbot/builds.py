@@ -974,15 +974,15 @@ class JITBenchmark(factory.BuildFactory):
             description='set upload config',
         ))
 
-        # self.addStep(
-        #    Translate(
-        #        translationArgs=['-Ojit'],
-        #        targetArgs=[],
-        #        haltOnFailure=True,
-        #        # this step can be executed in parallel with other builds
-        #        locks=[lock.access('counting')],
-        #        )
-        #    )
+        self.addStep(
+            Translate(
+                translationArgs=['-Ojit'],
+                targetArgs=[],
+                haltOnFailure=True,
+                # this step can be executed in parallel with other builds
+                locks=[lock.access('counting')],
+                )
+            )
 
         @renderer
         def get_cmd(props):
