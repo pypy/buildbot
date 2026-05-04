@@ -14,6 +14,7 @@ import sys
 
 GLOBS = [
     "./*/lib/*/site-packages/sqlalchemy/orm/identity.py",
+    "./*/*/lib/*/site-packages/sqlalchemy/orm/identity.py",
 ]
 
 seen = {}

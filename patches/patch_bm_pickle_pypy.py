@@ -14,6 +14,8 @@ import sys
 GLOBS = [
     "./*/lib/*/site-packages/pyperformance/data-files/benchmarks/bm_pickle/run_benchmark.py",
     "./*/lib/*/site-packages/benchmarks/bm_pickle/run_benchmark.py",
+    "./*/*/lib/*/site-packages/pyperformance/data-files/benchmarks/bm_pickle/run_benchmark.py",
+    "./*/*/lib/*/site-packages/benchmarks/bm_pickle/run_benchmark.py",
 ]
 
 # Deduplicate by real path in case any entries are symlinks to the same file
