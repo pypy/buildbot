@@ -974,15 +974,16 @@ class JITBenchmark(factory.BuildFactory):
             description='set upload config',
         ))
 
-        self.addStep(
-            Translate(
-                translationArgs=['-Ojit'],
-                targetArgs=[],
-                haltOnFailure=True,
-                # this step can be executed in parallel with other builds
-                locks=[lock.access('counting')],
-                )
-            )
+        # self.addStep(
+        #    Translate(
+        #        translationArgs=['-Ojit'],
+        #        targetArgs=[],
+        #        haltOnFailure=True,
+        #        # this step can be executed in parallel with other builds
+        #        locks=[lock.access('counting')],
+        #        )
+        #    )
+
         @renderer
         def get_cmd(props):
             # set from testrunner/get_info.py
@@ -1082,8 +1083,7 @@ class JITBenchmark(factory.BuildFactory):
         def get_pyperformance_run_cmd(props):
             return ['bash', '-c',
                     'rm -f pyperformance_result.json && '
-                    './pyperformance_venv/bin/python -m pyperformance run '
-                    '--venv ' + _bench_venv + ' -f '
+                    './pyperformance_venv/bin/python -m pyperformance run -f '
                     '--output pyperformance_result.json']
 
         @renderer
@@ -1105,8 +1105,7 @@ class JITBenchmark(factory.BuildFactory):
         def get_pyperformance_nojit_run_cmd(props):
             return ['bash', '-c',
                     'rm -f pyperformance_nojit_result.json && '
-                    './pyperformance_venv/bin/python -m pyperformance run '
-                    '--venv ' + _bench_venv + ' -f ' 
+                    './pyperformance_venv/bin/python -m pyperformance run -f '
                     '--output pyperformance_nojit_result.json '
                     '--python ./pypy_nojit']
 
