@@ -60,7 +60,10 @@ class BenchmarkForceScheduler(CustomForceScheduler):
         self.forcedProperties.append(pyperformance_spec)
 
     def force(self, owner, builderNames=None, **kwargs):
-        spec = kwargs.get('pyperformance_spec', 'pyperformance').strip()
+        spec = kwargs.get('pyperformance_spec', 'pyperformance')
+        if isinstance(spec, list):
+            spec = spec[0] if spec else 'pyperformance'
+        spec = spec.strip()
         if not _PYPERFORMANCE_SPEC_RE.match(spec):
             raise ValidationError(
                 "pyperformance pip specifier must be 'pyperformance', "
