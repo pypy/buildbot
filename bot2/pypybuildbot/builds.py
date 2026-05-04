@@ -1070,10 +1070,21 @@ class JITBenchmark(factory.BuildFactory):
             return ['./pyperformance_venv/bin/pip', 'install', '--upgrade',
                     'pyperformance']
 
+        _bench_venv = 'pyperformance_bench_venv'
+
+        @renderer
+        def get_pyperformance_bench_venv_cmd(props):
+            target = props.getProperty('target_path')
+            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
+                    'venv', 'create', '--venv', _bench_venv, '-p', target]
+
         @renderer
         def get_pyperformance_run_cmd(props):
-            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
-                    'run', '--output', 'pyperformance_result.json']
+            return ['bash', '-c',
+                    'rm -f pyperformance_result.json && '
+                    './pyperformance_venv/bin/python -m pyperformance run '
+                    '--venv ' + _bench_venv + ' -f '
+                    '--output pyperformance_result.json']
 
         @renderer
         def get_pyperformance_upload_cmd(props):
@@ -1092,9 +1103,12 @@ class JITBenchmark(factory.BuildFactory):
 
         @renderer
         def get_pyperformance_nojit_run_cmd(props):
-            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
-                    'run', '--output', 'pyperformance_nojit_result.json',
-                    '--python', './pypy_nojit']
+            return ['bash', '-c',
+                    'rm -f pyperformance_nojit_result.json && '
+                    './pyperformance_venv/bin/python -m pyperformance run '
+                    '--venv ' + _bench_venv + ' -f ' 
+                    '--output pyperformance_nojit_result.json '
+                    '--python ./pypy_nojit']
 
         @renderer
         def get_pyperformance_nojit_upload_cmd(props):
@@ -1114,11 +1128,16 @@ class JITBenchmark(factory.BuildFactory):
             command=get_pyperformance_install_cmd,
             doStepIf=is_py3_target,
             workdir='.'))
+        self.addStep(ShellCmd(
+            description='create pyperformance benchmark venv',
+            command=get_pyperformance_bench_venv_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
 
         # Transfer all PyPy-compatibility patch scripts from master to worker,
         # then apply them in a single step.
         _patches_dir = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), '..', '..', '..', 'patches'))
+            os.path.join(os.path.dirname(__file__), '..', '..', 'patches'))
         for _patch_file in sorted(glob.glob(
                 os.path.join(_patches_dir, 'patch_*_pypy.py'))):
             self.addStep(transfer.FileDownload(
@@ -1174,6 +1193,16 @@ class JITBenchmark(factory.BuildFactory):
         resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
                                          masterdest=WithProperties(resfile),
+                                         workdir="."))
+        pyresfile = os.path.expanduser("~/bench_results/%s-pyperformance.json" % filename)
+        self.addStep(transfer.FileUpload(slavesrc="pyperformance_result.json",
+                                         masterdest=WithProperties(pyresfile),
+                                         doStepIf=is_py3_target,
+                                         workdir="."))
+        pynoresfile = os.path.expanduser("~/bench_results/%s-pyperformance-nojit.json" % filename)
+        self.addStep(transfer.FileUpload(slavesrc="pyperformance_nojit_result.json",
+                                         masterdest=WithProperties(pynoresfile),
+                                         doStepIf=is_py3_target,
                                          workdir="."))
 
 
