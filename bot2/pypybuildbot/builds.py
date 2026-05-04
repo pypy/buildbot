@@ -387,18 +387,6 @@ def update_hg(platform, factory, repourl, workdir, revision, use_branch,
                 workdir=workdir,
                 logEnviron=False))
 
-def update_git(platform, factory, repourl, workdir, branch='main',
-               alwaysUseLatest=False):
-    factory.addStep(
-            Git(
-                repourl=repourl,
-                mode='full',
-                method='fresh',
-                workdir=workdir,
-                branch=branch,
-                alwaysUseLatest=alwaysUseLatest,
-                timeout=40*60,
-                logEnviron=False))
 
 
 def setup_steps(platform, factory, workdir=None,
@@ -426,7 +414,16 @@ def setup_steps(platform, factory, workdir=None,
     revision=WithProperties("%(revision)s")
     # update_hg(platform, factory, repourl, workdir, revision, use_branch=True,
     #          force_branch=force_branch, wipe_bookmarks=True)
-    update_git(platform, factory, repourl, workdir, branch=force_branch)
+    # TODO: re-enable git checkout once pyperformance pipeline is stable
+    if False:
+        factory.addStep(Git(
+            repourl=repourl,
+            mode='full',
+            method='fresh',
+            workdir=workdir,
+            branch=force_branch,
+            timeout=40*60,
+            logEnviron=False))
     #
     factory.addStep(CheckGotRevision(workdir=workdir))
 
@@ -905,46 +902,48 @@ class JITBenchmark(factory.BuildFactory):
         # benchmark_branch is the branch in the benchmark repo,
         # the rest refer to the pypy version to benchmark
        
-        # Since we want to use the benchmark_branch, copy the hg update steps
-        if platform in ("win32", "win64"):
-            command = "if NOT EXIST .hg rmdir /q /s ."
-        else:
-            command = "if [ ! -d .hg ]; then rm -fr * .[a-z]*; fi"
-        self.addStep(ShellCmd(description="rmdir?",
-                                 command=command,
-                                 workdir='./benchmarks',
-                                 haltOnFailure=False))
-        #
-        if platform in ("win32", "win64"):
-            command = "if NOT EXIST .hg %s"
-        else:
-            command = "if [ ! -d .hg ]; then %s; fi"
-        command = command % ("hg clone -U " + repourl + " .")
-        self.addStep(ShellCmd(description="hg clone",
-                                 command=command,
-                                 workdir='./benchmarks',
-                                 timeout=3600,
-                                 haltOnFailure=True))
-        #
-        self.addStep(
-            ShellCmd(description="benchmrk: hg purge",
-                 command="hg --config extensions.purge= purge --all",
-                 workdir='./benchmarks',
-                 haltOnFailure=True))
-        #
-        self.addStep(ShellCmd(description="benchmrk: hg pull",
-                                 command="hg pull %s" % repourl,
-                                 workdir='./benchmarks'))
-        #
-        # update with the branch
-        self.addStep(ShellCmd(description="benchmrk: hg update",
-            command=Interpolate("hg update --clean %(prop:benchmark_branch)s"),
-            workdir='./benchmarks'))
+        # TODO: re-enable hg benchmarks checkout and git+translate when
+        # iterating on pyperformance pipeline is complete
+        if False:
+            # Since we want to use the benchmark_branch, copy the hg update steps
+            if platform in ("win32", "win64"):
+                command = "if NOT EXIST .hg rmdir /q /s ."
+            else:
+                command = "if [ ! -d .hg ]; then rm -fr * .[a-z]*; fi"
+            self.addStep(ShellCmd(description="rmdir?",
+                                     command=command,
+                                     workdir='./benchmarks',
+                                     haltOnFailure=False))
+            #
+            if platform in ("win32", "win64"):
+                command = "if NOT EXIST .hg %s"
+            else:
+                command = "if [ ! -d .hg ]; then %s; fi"
+            command = command % ("hg clone -U " + repourl + " .")
+            self.addStep(ShellCmd(description="hg clone",
+                                     command=command,
+                                     workdir='./benchmarks',
+                                     timeout=3600,
+                                     haltOnFailure=True))
+            #
+            self.addStep(
+                ShellCmd(description="benchmrk: hg purge",
+                     command="hg --config extensions.purge= purge --all",
+                     workdir='./benchmarks',
+                     haltOnFailure=True))
+            #
+            self.addStep(ShellCmd(description="benchmrk: hg pull",
+                                     command="hg pull %s" % repourl,
+                                     workdir='./benchmarks'))
+            #
+            # update with the branch
+            self.addStep(ShellCmd(description="benchmrk: hg update",
+                command=Interpolate("hg update --clean %(prop:benchmark_branch)s"),
+                workdir='./benchmarks'))
 
-        self.addStep(ShellCmd(description="benchmrk: hg report revision",
-            command=Interpolate("hg parents --template='got_revision:{rev}:{node}'"),
-            workdir='./benchmarks'))
-
+            self.addStep(ShellCmd(description="benchmrk: hg report revision",
+                command=Interpolate("hg parents --template='got_revision:{rev}:{node}'"),
+                workdir='./benchmarks'))
 
         #
         setup_steps(platform, self)
@@ -974,15 +973,17 @@ class JITBenchmark(factory.BuildFactory):
             description='set upload config',
         ))
 
-        self.addStep(
-            Translate(
-                translationArgs=['-Ojit'],
-                targetArgs=[],
-                haltOnFailure=True,
-                # this step can be executed in parallel with other builds
-                locks=[lock.access('counting')],
+        # TODO: re-enable translation once pyperformance pipeline is stable
+        if False:
+            self.addStep(
+                Translate(
+                    translationArgs=['-Ojit'],
+                    targetArgs=[],
+                    haltOnFailure=True,
+                    # this step can be executed in parallel with other builds
+                    locks=[lock.access('counting')],
+                    )
                 )
-            )
 
         @renderer
         def get_cmd(props):
@@ -1071,13 +1072,11 @@ class JITBenchmark(factory.BuildFactory):
             return ['./pyperformance_venv/bin/pip', 'install', '--upgrade',
                     'pyperformance']
 
-        _bench_venv = 'pyperformance_bench_venv'
-
         @renderer
         def get_pyperformance_bench_venv_cmd(props):
             target = props.getProperty('target_path')
             return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
-                    'venv', 'create', '--venv', _bench_venv, '-p', target]
+                    'venv', 'create', '-p', target]
 
         @renderer
         def get_pyperformance_run_cmd(props):
@@ -1147,12 +1146,20 @@ class JITBenchmark(factory.BuildFactory):
         self.addStep(ShellCmd(
             description='apply PyPy compatibility patches',
             command=['python3', '-c',
-                     'import glob, subprocess, sys\n'
+                     'import glob, os, subprocess, sys\n'
+                     'print("cwd:", os.getcwd())\n'
+                     'print("cwd contents:", sorted(os.listdir(".")))\n'
+                     'venv_dir = "venv"\n'
+                     'if os.path.isdir(venv_dir):\n'
+                     '    print("venv/ contents:", sorted(os.listdir(venv_dir)))\n'
+                     'else:\n'
+                     '    print("venv/ directory does not exist")\n'
                      'scripts = sorted(glob.glob("patch_*_pypy.py"))\n'
                      'print("Applying patches:", scripts)\n'
                      'for f in scripts:\n'
                      '    subprocess.check_call([sys.executable, f])\n'],
             doStepIf=is_py3_target,
+            haltOnFailure=True,
             workdir='.'))
 
         self.addStep(ShellCmd(
@@ -1388,10 +1395,15 @@ class NativeNumpyTests(factory.BuildFactory):
 
         # obtain a pypy-compatible branch of numpy
         numpy_url = 'https://foss.heptapod.net/pypy/numpy'
-        update_git(platform, self, numpy_url, 'numpy_src', branch='master',
-                   alwaysUseLatest=True, # ignore pypy rev number when
-                                         # triggered by a pypy build
-                   )
+        self.addStep(Git(
+            repourl=numpy_url,
+            mode='full',
+            method='fresh',
+            workdir='numpy_src',
+            branch='master',
+            alwaysUseLatest=True,
+            timeout=40*60,
+            logEnviron=False))
 
         self.addStep(ShellCmd(
             description="install numpy",

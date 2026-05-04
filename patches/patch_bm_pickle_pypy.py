@@ -10,13 +10,13 @@ Source: https://github.com/python/pyperformance/pull/461
 import glob
 import sys
 
-GLOB = ("./pyperformance_bench_venv/lib/python*/site-packages"
+GLOB = ("./venv/*/lib/python*/site-packages"
         "/pyperformance/data-files/benchmarks/bm_pickle/run_benchmark.py")
 
 files = glob.glob(GLOB)
 if not files:
-    print("WARNING: bm_pickle run_benchmark.py not found – skipping patch")
-    sys.exit(0)
+    print("ERROR: bm_pickle run_benchmark.py not found – patch failed")
+    sys.exit(1)
 
 for path in files:
     txt = open(path).read()

@@ -12,13 +12,13 @@ import glob
 import re
 import sys
 
-GLOB = ("./pyperformance_bench_venv/lib/python*/site-packages"
+GLOB = ("./venv/*/lib/python*/site-packages"
         "/sqlalchemy/orm/identity.py")
 
 files = glob.glob(GLOB)
 if not files:
-    print("WARNING: sqlalchemy identity.py not found – skipping patch")
-    sys.exit(0)
+    print("ERROR: sqlalchemy identity.py not found – patch failed")
+    sys.exit(1)
 
 # Replace every bare call to _manage_removed_state(existing_non_none) with a
 # weakref liveness check.  Capture indentation so the replacement is correctly
