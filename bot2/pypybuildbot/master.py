@@ -27,14 +27,25 @@ class CustomForceScheduler(ForceScheduler):
         return ForceScheduler.force(self, owner, builder_name, **kwargs)
 
 
+import re as _re
+_PYPERFORMANCE_SPEC_RE = _re.compile(
+    r'^('
+    r'pyperformance\s*([><=!~^][^;]*)?'          # PyPI: pyperformance, pyperformance==1.2
+    r'|git\+https://github\.com/python/pyperformance(@\S+)?'  # GitHub: python/pyperformance only
+    r')$'
+)
+
 class BenchmarkForceScheduler(CustomForceScheduler):
     '''
-    A ForceScheduler with an extra field: benchmark_branch
+    A ForceScheduler with extra fields: benchmark_branch and pyperformance_spec
     '''
     def __init__(self, name, builderNames,
             benchmark_branch=StringParameter(name="benchmark_branch",
-                                             label="Benchmark repo branch:",
+                                             label="Legacy benchmark repo branch:",
                                              default="default", length=20),
+            pyperformance_spec=StringParameter(name="pyperformance_spec",
+                                               label="pyperformance pip specifier:",
+                                               default="pyperformance", length=60),
             properties=[ CodebaseParameter('PyPy repo', label='PyPy Repo')],
             **kwargs):
         CustomForceScheduler.__init__(self, name, builderNames, **kwargs)
@@ -45,8 +56,16 @@ class BenchmarkForceScheduler(CustomForceScheduler):
                          pypy_branch)
         self.all_fields.append(benchmark_branch)
         self.forcedProperties.append(benchmark_branch)
+        self.all_fields.append(pyperformance_spec)
+        self.forcedProperties.append(pyperformance_spec)
 
     def force(self, owner, builderNames=None, **kwargs):
+        spec = kwargs.get('pyperformance_spec', 'pyperformance').strip()
+        if not _PYPERFORMANCE_SPEC_RE.match(spec):
+            raise ValidationError(
+                "pyperformance pip specifier must be 'pyperformance', "
+                "'pyperformance==<version>', or "
+                "'git+https://github.com/python/pyperformance@<ref>'")
         CustomForceScheduler.force(self, owner, builderNames, **kwargs)
 
 # Forbid "stop build" without a reason that starts with "!"
