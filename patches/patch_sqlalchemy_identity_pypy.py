@@ -12,7 +12,7 @@ import glob
 import re
 import sys
 
-GLOB = ("./venv/*/lib/python*/site-packages"
+GLOB = ("./venv/*/lib/*/site-packages"
         "/sqlalchemy/orm/identity.py")
 
 files = glob.glob(GLOB)

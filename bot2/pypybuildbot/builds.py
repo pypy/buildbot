@@ -1005,14 +1005,6 @@ class JITBenchmark(factory.BuildFactory):
                      ]
             return command
 
-        self.addStep(ShellCmd(
-            # this step needs exclusive access to the CPU
-            locks=[lock.access('exclusive')],
-            description="run benchmarks on top of pypy-c",
-            command=get_cmd,
-            workdir='./benchmarks',
-            timeout=3600))
-
         # Push bulk_upload.py to the slave so upload steps can use it
         self.addStep(transfer.FileDownload(
             mastersrc=os.path.join(os.path.dirname(__file__), 'bulk_upload.py'),
@@ -1046,17 +1038,6 @@ class JITBenchmark(factory.BuildFactory):
                     '-u', upload_env['SPEED_UPLOAD_URL'],
                     '--baseline']
 
-        self.addStep(ShellCmd(
-            description='upload legacy results (jit-off)',
-            command=get_upload_changed_cmd,
-            env=upload_env,
-            workdir='.'))
-        self.addStep(ShellCmd(
-            description='upload legacy results (jit-on)',
-            command=get_upload_baseline_cmd,
-            env=upload_env,
-            workdir='.'))
-
         # Pyperformance: only when the target binary is pypy3*
         def is_py3_target(step):
             target = step.build.getProperty('target_path') or ''
@@ -1076,7 +1057,7 @@ class JITBenchmark(factory.BuildFactory):
         def get_pyperformance_bench_venv_cmd(props):
             target = props.getProperty('target_path')
             return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
-                    'venv', 'create', '-p', target]
+                    'venv', 'recreate', '-p', target]
 
         @renderer
         def get_pyperformance_run_cmd(props):
@@ -1192,6 +1173,24 @@ class JITBenchmark(factory.BuildFactory):
             command=get_pyperformance_nojit_upload_cmd,
             env=upload_env,
             doStepIf=is_py3_target,
+            workdir='.'))
+
+        self.addStep(ShellCmd(
+            # this step needs exclusive access to the CPU
+            locks=[lock.access('exclusive')],
+            description="run benchmarks on top of pypy-c",
+            command=get_cmd,
+            workdir='./benchmarks',
+            timeout=3600))
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-off)',
+            command=get_upload_changed_cmd,
+            env=upload_env,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-on)',
+            command=get_upload_baseline_cmd,
+            env=upload_env,
             workdir='.'))
 
         # Archive the legacy result file on the master

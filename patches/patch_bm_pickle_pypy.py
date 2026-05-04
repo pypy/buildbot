@@ -10,7 +10,7 @@ Source: https://github.com/python/pyperformance/pull/461
 import glob
 import sys
 
-GLOB = ("./venv/*/lib/python*/site-packages"
+GLOB = ("./venv/*/lib/*/site-packages"
         "/pyperformance/data-files/benchmarks/bm_pickle/run_benchmark.py")
 
 files = glob.glob(GLOB)
