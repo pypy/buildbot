@@ -1045,16 +1045,17 @@ class JITBenchmark(factory.BuildFactory):
             return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
                     'venv', 'recreate', '-p', target]
 
-        def get_pyperformance_run_cmd(outfile, inherit_environ=None):
+        def get_pyperformance_run_cmd(outfile, inherit_environ=None, fast=False):
             @renderer
             def _cmd(props):
                 target = props.getProperty('target_path')
                 inherit = ('--inherit-environ %s ' % inherit_environ
                            if inherit_environ else '')
+                fast_flag = '-f ' if fast else ''
                 return ['bash', '-c',
                         'rm -f %s && '
                         './pyperformance_venv/bin/python -m pyperformance run '
-                        '%s--python %s --output %s' % (outfile, inherit, target, outfile)]
+                        '%s%s--python %s --output %s' % (outfile, fast_flag, inherit, target, outfile)]
             return _cmd
 
         @renderer
@@ -1135,7 +1136,8 @@ class JITBenchmark(factory.BuildFactory):
         self.addStep(ShellCmd(
             description='run pyperformance (nojit)',
             command=get_pyperformance_run_cmd('pyperformance_nojit_result.json',
-                                              inherit_environ='PYPY_DISABLE_JIT'),
+                                              inherit_environ='PYPY_DISABLE_JIT',
+                                              fast=True),
             env={'PYPY_DISABLE_JIT': '1'},
             locks=[lock.access('exclusive')],
             doStepIf=is_py3_target,
