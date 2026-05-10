@@ -1075,6 +1075,11 @@ class JITBenchmark(factory.BuildFactory):
                     '-u', upload_env['SPEED_UPLOAD_URL']]
 
         self.addStep(ShellCmd(
+            description='clean up old pypy venvs',
+            command=['sh', '-c', 'rm -rf venv pyperformance_venv'],
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
             description='create pyperformance venv',
             command=get_pyperformance_venv_cmd,
             doStepIf=is_py3_target,
