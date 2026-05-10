@@ -1,20 +1,27 @@
 """
-Patch SQLAlchemy identity map for PyPy GC compatibility.
+Patch bm_sqlalchemy_declarative for PyPy GC compatibility.
 
-PyPy's garbage collector may collect an object referenced by a weakref before
-the weakref is checked, causing 'NoneType has no attribute __dict__' errors in
-the ORM identity map.  Guard each call to _manage_removed_state with an
-explicit liveness check on the weakref.
+SQLite reuses primary key IDs after a full table DELETE; the next loop
+iteration inserts new objects with the same IDs as the previous run.  On
+CPython, refcounting immediately collects the old objects, clearing the
+identity map's weakrefs.  On PyPy, GC is deferred, so the old objects
+remain alive and SQLAlchemy emits a SAWarning for every inserted row on
+every loop, flooding stderr and causing the benchmark to fail.
 
-Source: https://github.com/sqlalchemy/sqlalchemy/discussions/13274
+Fix: call session.expunge_all() after the bulk deletes to explicitly clear
+stale session state before timing begins.
+
+Source: https://github.com/python/pyperformance/pull/472
 """
 import glob
 import os
 import sys
 
 GLOBS = [
-    "./*/lib/*/site-packages/sqlalchemy/orm/identity.py",
-    "./*/*/lib/*/site-packages/sqlalchemy/orm/identity.py",
+    "./*/lib/*/site-packages/pyperformance/data-files/benchmarks/bm_sqlalchemy_declarative/run_benchmark.py",
+    "./*/lib/*/site-packages/benchmarks/bm_sqlalchemy_declarative/run_benchmark.py",
+    "./*/*/lib/*/site-packages/pyperformance/data-files/benchmarks/bm_sqlalchemy_declarative/run_benchmark.py",
+    "./*/*/lib/*/site-packages/benchmarks/bm_sqlalchemy_declarative/run_benchmark.py",
 ]
 
 seen = {}
@@ -24,34 +31,17 @@ for pattern in GLOBS:
 files = list(seen.values())
 
 if not files:
-    print("ERROR: sqlalchemy identity.py not found – patch failed")
+    print("ERROR: bm_sqlalchemy_declarative/run_benchmark.py not found – patch failed")
     sys.exit(1)
 
-# In replace(): if the GC collected existing, set existing = None so the
-# caller gets None back rather than a dead weakref.
-OLD_REPLACE = (
-    "                if existing is not state:\n"
-    "                    self._manage_removed_state(existing)\n"
-    "                else:\n"
-    "                    return None"
+OLD = (
+    "        session.query(Person).delete(synchronize_session=False)\n"
+    "        session.query(Address).delete(synchronize_session=False)\n"
 )
-NEW_REPLACE = (
-    "                if existing is not state:\n"
-    "                    if existing.obj() is not None:\n"
-    "                        self._manage_removed_state(existing)\n"
-    "                    else:\n"
-    "                        existing = None\n"
-    "                else:\n"
-    "                    return None"
-)
-
-# In safe_discard(): no return value, so no else clause needed.
-OLD_DISCARD = (
-    "                    self._manage_removed_state(state)\n"
-)
-NEW_DISCARD = (
-    "                    if state.obj() is not None:\n"
-    "                        self._manage_removed_state(state)\n"
+NEW = (
+    "        session.query(Person).delete(synchronize_session=False)\n"
+    "        session.query(Address).delete(synchronize_session=False)\n"
+    "        session.expunge_all()\n"
 )
 
 failed = False
@@ -59,20 +49,12 @@ for path in files:
     txt = open(path).read()
     original = txt
 
-    if OLD_REPLACE in txt:
-        txt = txt.replace(OLD_REPLACE, NEW_REPLACE)
-    elif NEW_REPLACE in txt:
-        print(f"NOTE: {path} replace() already patched")
+    if OLD in txt:
+        txt = txt.replace(OLD, NEW)
+    elif NEW in txt:
+        print(f"NOTE: {path} already patched")
     else:
-        print(f"ERROR: {path} replace() pattern not found – version mismatch?")
-        failed = True
-
-    if OLD_DISCARD in txt:
-        txt = txt.replace(OLD_DISCARD, NEW_DISCARD)
-    elif NEW_DISCARD in txt:
-        print(f"NOTE: {path} safe_discard() already patched")
-    else:
-        print(f"ERROR: {path} safe_discard() pattern not found – version mismatch?")
+        print(f"ERROR: {path} pattern not found – version mismatch?")
         failed = True
 
     if txt != original:
