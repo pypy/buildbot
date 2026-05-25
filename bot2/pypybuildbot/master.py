@@ -263,15 +263,17 @@ pypyJITTranslatedTestFactoryAARCH64 = pypybuilds.Translated(
 
 pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker',
                                                          upload_credentials=upload_credentials)
+
 pypyJITBenchmarkFactory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker',
                                                            postfix='-64',
                                                            upload_credentials=upload_credentials)
+
 pypyJITBenchmark2Factory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker2',
-                                                           postfix='-64')
                                                            postfix='-64',
                                                            upload_credentials=upload_credentials)
+
 pypyJITBenchmarkFactory64_speed = pypybuilds.JITBenchmarkSingleRun(
     platform='linux64',
     host='speed_python',
@@ -676,7 +678,7 @@ BuildmasterConfig = {
                    "locks": [AARCH64Lock.access('counting')],
                   },
                   {"name": JITBENCH64,
-                   "slavenames": ["benchmarker"],
+                   "slavenames": ["benchmarker", "benchmarker2"],
                    "builddir": JITBENCH64,
                    "factory": pypyJITBenchmarkFactory64,
                    "category": "benchmark-run",
