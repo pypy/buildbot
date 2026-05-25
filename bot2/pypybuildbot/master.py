@@ -243,6 +243,9 @@ pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker')
 pypyJITBenchmarkFactory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker',
                                                            postfix='-64')
+pypyJITBenchmark2Factory64 = pypybuilds.JITBenchmark(platform='linux64',
+                                                           host='benchmarker2',
+                                                           postfix='-64')
 pypyJITBenchmarkFactory64_speed = pypybuilds.JITBenchmarkSingleRun(
     platform='linux64',
     host='speed_python',
@@ -288,6 +291,7 @@ JITMACOSARM64 = "pypy-c-jit-macos-arm64"
 
 # JITONLYLINUXPPC64 = "jitonly-own-linux-ppc-64"
 JITBENCH64 = "jit-benchmark-linux-x86-64"
+JITBENCH64_2 = "jit-benchmark2-linux-x86-64"
 CPYTHON_64 = "cpython-2-benchmark-x86-64"
 #NUMPY_64 = "numpy-compatibility-linux-x86-64"
 #NUMPY_WIN = "numpy-compatibility-win-x86-32"
@@ -389,6 +393,7 @@ BuildmasterConfig = {
 
         Nightly("nightly-1-00", [
             JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
+            JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
             ], branch='main', hour=8, minute=0,
@@ -397,6 +402,7 @@ BuildmasterConfig = {
 
         Nightly("nightly-1-03", [
             JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
+            JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
             ], branch='py3.11', hour=12, minute=0,
@@ -458,6 +464,7 @@ BuildmasterConfig = {
         BenchmarkForceScheduler('Force Build ',
             builderNames=[
                         JITBENCH64,
+                        JITBENCH64_2,
                         JITBENCH64_NEW,
                     ], properties=[]),
         CustomForceScheduler('Force Build',
@@ -643,9 +650,16 @@ BuildmasterConfig = {
                    "locks": [AARCH64Lock.access('counting')],
                   },
                   {"name": JITBENCH64,
-                   "slavenames": ["benchmarker"],
+                   "slavenames": ["benchmarker", "benchmarker2"],
                    "builddir": JITBENCH64,
                    "factory": pypyJITBenchmarkFactory64,
+                   "category": "benchmark-run",
+                   # the locks are acquired with fine grain inside the build
+                   },
+                  {"name": JITBENCH64_2,
+                   "slavenames": ["benchmarker2"],
+                   "builddir": JITBENCH64_2,
+                   "factory": pypyJITBenchmark2Factory64,
                    "category": "benchmark-run",
                    # the locks are acquired with fine grain inside the build
                    },

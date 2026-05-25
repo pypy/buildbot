@@ -24,6 +24,7 @@ import json
 
 # benchmarker has 8 logical CPUs, but only 4 physical ones, and memory for ~6 translations
 BenchmarkerLock = locks.MasterLock('benchmarker', maxCount=3)
+Benchmarker2Lock = locks.MasterLock('benchmarker2', maxCount=3)
 SpeedPythonCPU = locks.MasterLock('speed_python_cpu', maxCount=24)
 WinSlaveLock = locks.SlaveLock('win_cpu', maxCount=2)
 # speed-old has 24 cores, but memory for ~2 translations
@@ -858,6 +859,8 @@ class JITBenchmarkSingleRun(factory.BuildFactory):
         setup_steps(platform, self)
         if host == 'benchmarker':
             lock = BenchmarkerLock
+        elif host == 'benchmarker2':
+            lock = Benchmarker2Lock
         elif host == 'speed_python':
             lock = SpeedPythonCPU
         else:
@@ -946,6 +949,8 @@ class JITBenchmark(factory.BuildFactory):
         setup_steps(platform, self)
         if host == 'benchmarker':
             lock = BenchmarkerLock
+        elif host == 'benchmarker2':
+            lock = Benchmarker2Lock
         elif host == 'speed_python':
             lock = SpeedPythonCPU
         else:
@@ -1006,7 +1011,7 @@ class JITBenchmark(factory.BuildFactory):
             timeout=3600))
         # a bit obscure hack to get both os.path.expand and a property
         filename = '%(got_revision)s' + (postfix or '')
-        resfile = os.path.expanduser("~/bench_results/%s.json" % filename)
+        resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
                                          masterdest=WithProperties(resfile),
                                          workdir="."))
