@@ -981,7 +981,7 @@ class JITBenchmark(factory.BuildFactory):
             rev = rev.split(':')[-1]
             branch = props.getProperty('branch')
             if branch == 'None' or branch is None:
-                branch = 'default'
+                branch = 'main'
             command=["python", "-u", "runner.py", '--output-filename', 'result.json',
                      '--changed', target,
                      '--baseline', target,
