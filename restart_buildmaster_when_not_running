@@ -3,7 +3,8 @@
 while ( wget -O - 'http://buildbot.pypy.org/waterfall' | grep --color=always -w "Activity building" ); do echo '*** There are running buildbots, will try again in 5 minutes. ***' && sleep 300; done
 
 echo "*** DONE, SHUT DOWN in 5 seconds... ***"
-sleep 5 && (cd master && /home/buildmaster/vbuildbot/bin/buildbot stop)
+sleep 5 && (cd master && /home/pypy-worker/pypy2.7-v7.3.22-linux64/bin/buildbot stop)
 
 echo "*** BUILDBOT DOWN, bringing it back up in 30 seconds... ***"
-sleep 30 && (cd master && /home/buildmaster/vbuildbot/bin/buildbot start)
+sleep 30 && (cd master && /home/pypy-worker/pypy2.7-v7.3.22-linux64/bin/buildbot start)
+

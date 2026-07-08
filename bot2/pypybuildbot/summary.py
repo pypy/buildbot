@@ -818,7 +818,6 @@ class Summary(HtmlResource):
                     continue
 
                 branch_ = meta_branch_name(branch)
-                print("mapped branch", branch, "to", branch_)
                 cat_branch = (builderStatus.category, branch_)
 
                 runs, no_revision_builds = cat_branches.setdefault(cat_branch,

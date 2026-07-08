@@ -3,7 +3,7 @@ import socket
 from twisted.python import log
 
 def we_are_debugging():
-    return socket.gethostname() != 'baroquesoftware'
+    return False
 
 def load(name):
     mod = __import__(name, {}, {}, ['__all__'])
