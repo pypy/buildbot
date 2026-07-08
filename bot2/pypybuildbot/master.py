@@ -318,7 +318,6 @@ JITMACOSARM64 = "pypy-c-jit-macos-arm64"
 # JITWIN32 = "pypy-c-jit-win-x86-32"
 
 # JITONLYLINUXPPC64 = "jitonly-own-linux-ppc-64"
-JITBENCH64 = "jit-benchmark-linux-x86-64"
 JITBENCH64_2 = "jit-benchmark2-linux-x86-64"
 CPYTHON_64 = "cpython-2-benchmark-x86-64"
 #NUMPY_64 = "numpy-compatibility-linux-x86-64"
@@ -674,13 +673,6 @@ BuildmasterConfig = {
                    'category': 'aarch64',
                    "locks": [AARCH64Lock.access('counting')],
                   },
-                  {"name": JITBENCH64,
-                   "slavenames": ["benchmarker", "benchmarker2"],
-                   "builddir": JITBENCH64,
-                   "factory": pypyJITBenchmarkFactory64,
-                   "category": "benchmark-run",
-                   # the locks are acquired with fine grain inside the build
-                   },
                   {"name": JITBENCH64_2,
                    "slavenames": ["benchmarker2"],
                    "builddir": JITBENCH64_2,
