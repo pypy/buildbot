@@ -370,7 +370,7 @@ BuildmasterConfig = {
         # in the "Revision" property.  Any build with such a "Revision" property will
         # use exactly that revision (at least in our nightly builds).
         GitPoller('https://github.com/pypy/pypy', workdir='gitpoller-workdir',
-                 branches=['main','py3.10', 'py3.11'], pollinterval=20*60),
+                 branches=['main','py3.12', 'py3.11'], pollinterval=20*60),
         ],
 
     'schedulers': [
@@ -465,17 +465,17 @@ BuildmasterConfig = {
             onlyIfChanged=True
         ),
 
-        Nightly("nightly-own-py3.10", [
+        Nightly("nightly-own-py3.12", [
             LINUX32OWN,                # on bencher4_32, uses all cores
             LINUX64OWN,                # on bencher4, uses all cores
             AARCH64OWN,
             WIN64OWN,                  # on SalsaSalsa
             MACOS64OWN,
             MACOSARM64OWN,
-            ], branch="py3.10", hour=4, minute=30,
+            ], branch="py3.12", hour=4, minute=30,
             onlyIfChanged=True
         ),
-        Nightly("nightly-jit-py3.10", [
+        Nightly("nightly-jit-py3.12", [
             JITLINUX32,                # on bencher4_32, uses 1 core
             JITLINUX64,                # on bencher4, uses 1 core
             JITAARCH64,
@@ -483,7 +483,7 @@ BuildmasterConfig = {
             JITMACOSARM64,
             JITWIN64,                  # on SalsaSalsa
             # JITLINUX_S390X,
-            ], branch="py3.10", hour=5, minute=30,
+            ], branch="py3.12", hour=5, minute=30,
             onlyIfChanged=True
         ),
 
