@@ -1,0 +1,43 @@
+25,26c25,50
+<     sourcestamps_table = sa.Table('sourcestamps', metadata, autoload=True)
+<     buildsets_table = sa.Table('buildsets', metadata, autoload=True)
+---
+>     # Define tables explicitly to avoid SQLite reflection issues caused by
+>     # migration_tmp references left in sqlite_master by migration 004's ALTER TABLE.
+>     sa.Table('patches', metadata,
+>         sa.Column('id', sa.Integer, primary_key=True),
+>         sa.Column('patchlevel', sa.Integer, nullable=False),
+>         sa.Column('patch_base64', sa.Text, nullable=False),
+>         sa.Column('subdir', sa.Text),
+>     )
+>     sourcestamps_table = sa.Table('sourcestamps', metadata,
+>         sa.Column('id', sa.Integer, primary_key=True),
+>         sa.Column('branch', sa.String(256)),
+>         sa.Column('revision', sa.String(256)),
+>         sa.Column('patchid', sa.Integer, sa.ForeignKey('patches.id')),
+>         sa.Column('repository', sa.Text, nullable=False, server_default=''),
+>         sa.Column('project', sa.Text, nullable=False, server_default=''),
+>     )
+>     buildsets_table = sa.Table('buildsets', metadata,
+>         sa.Column('id', sa.Integer, primary_key=True),
+>         sa.Column('external_idstring', sa.String(256)),
+>         sa.Column('reason', sa.String(256)),
+>         sa.Column('sourcestampid', sa.Integer, sa.ForeignKey('sourcestamps.id'), nullable=False),
+>         sa.Column('submitted_at', sa.Integer, nullable=False),
+>         sa.Column('complete', sa.SmallInteger, nullable=False, server_default=sa.DefaultClause("0")),
+>         sa.Column('complete_at', sa.Integer),
+>         sa.Column('results', sa.SmallInteger),
+>     )
+45c69,78
+<     buildsets_table = sa.Table('buildsets', metadata, autoload=True)
+---
+>     buildsets_table = sa.Table('buildsets', metadata,
+>         sa.Column('id', sa.Integer, primary_key=True),
+>         sa.Column('external_idstring', sa.String(256)),
+>         sa.Column('reason', sa.String(256)),
+>         sa.Column('sourcestampsetid', sa.Integer, sa.ForeignKey('sourcestampsets.id'), nullable=False),
+>         sa.Column('submitted_at', sa.Integer, nullable=False),
+>         sa.Column('complete', sa.SmallInteger, nullable=False, server_default=sa.DefaultClause("0")),
+>         sa.Column('complete_at', sa.Integer),
+>         sa.Column('results', sa.SmallInteger),
+>     )

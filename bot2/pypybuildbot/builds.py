@@ -8,6 +8,7 @@ from buildbot.process.properties import WithProperties, Interpolate, Property, r
 from buildbot import locks
 from pypybuildbot.util import symlink_force
 from buildbot.status.results import SKIPPED, SUCCESS
+import glob
 import os
 import json
 
@@ -386,26 +387,13 @@ def update_hg(platform, factory, repourl, workdir, revision, use_branch,
                 workdir=workdir,
                 logEnviron=False))
 
-def update_git(platform, factory, repourl, workdir, branch='main',
-               alwaysUseLatest=False):
-    factory.addStep(
-            Git(
-                repourl=repourl,
-                mode='full',
-                method='fresh',
-                workdir=workdir,
-                branch=branch,
-                alwaysUseLatest=alwaysUseLatest,
-                timeout=40*60,
-                logEnviron=False))
 
 
 def setup_steps(platform, factory, workdir=None,
                 repourl='https://github.com/pypy/pypy/',
                 force_branch=None):
     factory.addStep(shell.SetPropertyFromCommand(
-            command=['python', '-c', "import tempfile, os ;print"
-                     " tempfile.gettempdir() + os.path.sep"],
+            command=['python', '-c', "import tempfile, os; print(tempfile.gettempdir() + os.path.sep)"],
             property="target_tmpdir",
             env={'TMPDIR': "${TMPDIR}"},
     ))
@@ -426,7 +414,14 @@ def setup_steps(platform, factory, workdir=None,
     revision=WithProperties("%(revision)s")
     # update_hg(platform, factory, repourl, workdir, revision, use_branch=True,
     #          force_branch=force_branch, wipe_bookmarks=True)
-    update_git(platform, factory, repourl, workdir, branch=force_branch)
+    factory.addStep(Git(
+            repourl=repourl,
+            mode='full',
+            method='fresh',
+            workdir=workdir,
+            branch=force_branch,
+            timeout=40*60,
+            logEnviron=False))
     #
     factory.addStep(CheckGotRevision(workdir=workdir))
 
@@ -896,7 +891,8 @@ class JITBenchmarkSingleRun(factory.BuildFactory):
                                          workdir="."))
 
 class JITBenchmark(factory.BuildFactory):
-    def __init__(self, platform='linux', host='benchmarker', postfix=''):
+    def __init__(self, platform='linux', host='benchmarker', postfix='',
+                 upload_credentials=None):
         factory.BuildFactory.__init__(self)
 
         #
@@ -913,7 +909,6 @@ class JITBenchmark(factory.BuildFactory):
                                  command=command,
                                  workdir='./benchmarks',
                                  haltOnFailure=False))
-        #
         if platform in ("win32", "win64"):
             command = "if NOT EXIST .hg %s"
         else:
@@ -924,28 +919,21 @@ class JITBenchmark(factory.BuildFactory):
                                  workdir='./benchmarks',
                                  timeout=3600,
                                  haltOnFailure=True))
-        #
         self.addStep(
             ShellCmd(description="benchmrk: hg purge",
                  command="hg --config extensions.purge= purge --all",
                  workdir='./benchmarks',
                  haltOnFailure=True))
-        #
         self.addStep(ShellCmd(description="benchmrk: hg pull",
                                  command="hg pull %s" % repourl,
                                  workdir='./benchmarks'))
-        #
-        # update with the branch
         self.addStep(ShellCmd(description="benchmrk: hg update",
             command=Interpolate("hg update --clean %(prop:benchmark_branch)s"),
             workdir='./benchmarks'))
-
         self.addStep(ShellCmd(description="benchmrk: hg report revision",
             command=Interpolate("hg parents --template='got_revision:{rev}:{node}'"),
             workdir='./benchmarks'))
 
-
-        #
         setup_steps(platform, self)
         if host == 'benchmarker':
             lock = BenchmarkerLock
@@ -956,12 +944,23 @@ class JITBenchmark(factory.BuildFactory):
         else:
             assert False, 'unknown host %s' % host
 
-        def extract_info(rc, stdout, stderr):
-            if rc == 0:
-                return json.loads(stdout)
-            else:
-                return {}
-        
+        upload_env = {
+            'SPEED_UPLOAD_URL': os.environ.get('SPEED_UPLOAD_URL', 'https://speed.pypy.org/'),
+            'SPEED_UPLOAD_HOST': os.environ.get('SPEED_UPLOAD_HOST', host),
+        }
+        if upload_credentials:
+            upload_env['SPEED_UPLOAD_USER'] = upload_credentials.get('username', '')
+            upload_env['SPEED_UPLOAD_PASSWORD'] = upload_credentials.get('password', '')
+
+        def extract_upload_config(rc, stdout, stderr):
+            return {'upload_url': upload_env['SPEED_UPLOAD_URL'],
+                    'upload_host': upload_env['SPEED_UPLOAD_HOST']}
+        self.addStep(shell.SetPropertyFromCommand(
+            command=['python', '-c', 'print("ok")'],
+            extract_fn=extract_upload_config,
+            description='set upload config',
+        ))
+
         self.addStep(
             Translate(
                 translationArgs=['-Ojit'],
@@ -971,6 +970,7 @@ class JITBenchmark(factory.BuildFactory):
                 locks=[lock.access('counting')],
                 )
             )
+
         @renderer
         def get_cmd(props):
             # set from testrunner/get_info.py
@@ -981,26 +981,179 @@ class JITBenchmark(factory.BuildFactory):
             rev = rev.split(':')[-1]
             branch = props.getProperty('branch')
             if branch == 'None' or branch is None:
-                branch = 'default'
+                branch = 'main'
             command=["python", "-u", "runner.py", '--output-filename', 'result.json',
                      '--changed', target,
                      '--baseline', target,
                      '--args', ',--jit off',
-                     '--upload',
-                     '--upload-executable', exe + postfix,
-                     '--upload-project', project,
-                     # use only the hash in the revision
                      '--revision', rev,
                      '--branch', branch,
-                     '--upload-urls', 'https://speed.pypy.org/',
-                     '--upload-baseline',
-                     '--upload-baseline-executable', exe + '-jit' + postfix,
-                     '--upload-baseline-project', project,
-                     '--upload-baseline-revision', rev,
-                     '--upload-baseline-branch', branch,
-                     '--upload-baseline-urls', 'https://speed.pypy.org/',
-                     ] 
-            return command  
+                     ]
+            return command
+
+        # Push bulk_upload.py to the slave so upload steps can use it
+        self.addStep(transfer.FileDownload(
+            mastersrc=os.path.join(os.path.dirname(__file__), 'bulk_upload.py'),
+            slavedest='bulk_upload.py',
+            workdir='.'))
+
+        def _props_for_upload(props):
+            target = props.getProperty('target_path')
+            exe = os.path.split(target)[-1][:-2]
+            project = props.getProperty('project', default='PyPy')
+            rev = props.getProperty('got_revision').split(':')[-1]
+            branch = props.getProperty('branch') or 'main'
+            if branch == 'None':
+                branch = 'main'
+            return exe, project, rev, branch
+
+        @renderer
+        def get_upload_changed_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
+                    '-e', exe + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
+
+        @renderer
+        def get_upload_baseline_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
+                    '-e', exe + '-jit' + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL'],
+                    '--baseline']
+
+        # Pyperformance: only when the target binary is pypy3*
+        def is_py3_target(step):
+            target = step.build.getProperty('target_path') or ''
+            return os.path.basename(target).startswith('pypy3')
+
+        @renderer
+        def get_pyperformance_venv_cmd(props):
+            target = props.getProperty('target_path')
+            return [target, '-m', 'venv', 'pyperformance_venv']
+
+        @renderer
+        def get_pyperformance_install_cmd(props):
+            spec = props.getProperty('pyperformance_spec', default='pyperformance').strip()
+            return ['./pyperformance_venv/bin/pip', 'install', '--upgrade', spec]
+
+        @renderer
+        def get_pyperformance_bench_venv_cmd(props):
+            target = props.getProperty('target_path')
+            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
+                    'venv', 'recreate', '-p', target]
+
+        def get_pyperformance_run_cmd(outfile, inherit_environ=None, fast=False):
+            @renderer
+            def _cmd(props):
+                target = props.getProperty('target_path')
+                inherit = ('--inherit-environ %s ' % inherit_environ
+                           if inherit_environ else '')
+                fast_flag = '-f ' if fast else ''
+                return ['bash', '-c',
+                        'rm -f %s && '
+                        './pyperformance_venv/bin/python -m pyperformance run '
+                        '%s%s--python %s --output %s' % (outfile, fast_flag, inherit, target, outfile)]
+            return _cmd
+
+        @renderer
+        def get_pyperformance_upload_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
+                    '-e', exe + '-jit' + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
+
+        @renderer
+        def get_pyperformance_nojit_upload_cmd(props):
+            exe, project, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'pyperformance_nojit_result.json',
+                    '-e', exe + postfix, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', project, '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
+
+        self.addStep(ShellCmd(
+            description='clean up old pypy venvs',
+            command=['sh', '-c', 'rm -rf venv pyperformance_venv'],
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='create pyperformance venv',
+            command=get_pyperformance_venv_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='install pyperformance',
+            command=get_pyperformance_install_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='create pyperformance benchmark venv',
+            command=get_pyperformance_bench_venv_cmd,
+            doStepIf=is_py3_target,
+            workdir='.'))
+
+        # Transfer all PyPy-compatibility patch scripts from master to worker,
+        # then apply them in a single step.
+        _patches_dir = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), '..', '..', 'patches'))
+        for _patch_file in sorted(glob.glob(
+                os.path.join(_patches_dir, 'patch_*_pypy.py'))):
+            self.addStep(transfer.FileDownload(
+                mastersrc=_patch_file,
+                slavedest=os.path.basename(_patch_file),
+                doStepIf=is_py3_target,
+                workdir='.'))
+        self.addStep(ShellCmd(
+            description='apply PyPy compatibility patches',
+            command=['python3', '-c',
+                     'import glob, os, subprocess, sys\n'
+                     'print("cwd:", os.getcwd())\n'
+                     'print("cwd contents:", sorted(os.listdir(".")))\n'
+                     'venv_dir = "venv"\n'
+                     'if os.path.isdir(venv_dir):\n'
+                     '    print("venv/ contents:", sorted(os.listdir(venv_dir)))\n'
+                     'else:\n'
+                     '    print("venv/ directory does not exist")\n'
+                     'scripts = sorted(glob.glob("patch_*_pypy.py"))\n'
+                     'print("Applying patches:", scripts)\n'
+                     'for f in scripts:\n'
+                     '    subprocess.check_call([sys.executable, f])\n'],
+            doStepIf=is_py3_target,
+            haltOnFailure=True,
+            workdir='.'))
+
+        self.addStep(ShellCmd(
+            description='run pyperformance (jit)',
+            command=get_pyperformance_run_cmd('pyperformance_result.json'),
+            locks=[lock.access('exclusive')],
+            doStepIf=is_py3_target,
+            workdir='.',
+            timeout=7200))
+        self.addStep(ShellCmd(
+            description='upload pyperformance results (jit)',
+            command=get_pyperformance_upload_cmd,
+            env=upload_env,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='run pyperformance (nojit)',
+            command=get_pyperformance_run_cmd('pyperformance_nojit_result.json',
+                                              inherit_environ='PYPY_DISABLE_JIT',
+                                              fast=True),
+            env={'PYPY_DISABLE_JIT': '1'},
+            locks=[lock.access('exclusive')],
+            doStepIf=is_py3_target,
+            workdir='.',
+            timeout=7200))
+        self.addStep(ShellCmd(
+            description='upload pyperformance results (nojit)',
+            command=get_pyperformance_nojit_upload_cmd,
+            env=upload_env,
+            doStepIf=is_py3_target,
+            workdir='.'))
 
         self.addStep(ShellCmd(
             # this step needs exclusive access to the CPU
@@ -1009,11 +1162,32 @@ class JITBenchmark(factory.BuildFactory):
             command=get_cmd,
             workdir='./benchmarks',
             timeout=3600))
-        # a bit obscure hack to get both os.path.expand and a property
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-off)',
+            command=get_upload_changed_cmd,
+            env=upload_env,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='upload legacy results (jit-on)',
+            command=get_upload_baseline_cmd,
+            env=upload_env,
+            workdir='.'))
+
+        # Archive the legacy result file on the master
         filename = '%(got_revision)s' + (postfix or '')
         resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
                                          masterdest=WithProperties(resfile),
+                                         workdir="."))
+        pyresfile = os.path.expanduser("~/bench_results/%s-pyperformance.json" % filename)
+        self.addStep(transfer.FileUpload(slavesrc="pyperformance_result.json",
+                                         masterdest=WithProperties(pyresfile),
+                                         doStepIf=is_py3_target,
+                                         workdir="."))
+        pynoresfile = os.path.expanduser("~/bench_results/%s-pyperformance-nojit.json" % filename)
+        self.addStep(transfer.FileUpload(slavesrc="pyperformance_nojit_result.json",
+                                         masterdest=WithProperties(pynoresfile),
+                                         doStepIf=is_py3_target,
                                          workdir="."))
 
 
@@ -1200,10 +1374,15 @@ class NativeNumpyTests(factory.BuildFactory):
 
         # obtain a pypy-compatible branch of numpy
         numpy_url = 'https://foss.heptapod.net/pypy/numpy'
-        update_git(platform, self, numpy_url, 'numpy_src', branch='master',
-                   alwaysUseLatest=True, # ignore pypy rev number when
-                                         # triggered by a pypy build
-                   )
+        self.addStep(Git(
+            repourl=numpy_url,
+            mode='full',
+            method='fresh',
+            workdir='numpy_src',
+            branch='master',
+            alwaysUseLatest=True,
+            timeout=40*60,
+            logEnviron=False))
 
         self.addStep(ShellCmd(
             description="install numpy",

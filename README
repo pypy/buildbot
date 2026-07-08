@@ -1,19 +1,25 @@
 .. -*- mode: rst -*-
 
-Moved from heptapod
-===================
+Current buidlbot status
+=======================
 
 This is the code for PyPy's buildbot, powering buildbot.pypy.org. It was
-imported in April 2026 from https://foss.heptapod.net/pypy/buildbot.
+imported in April 2026 from https://foss.heptapod.net/pypy/buildbot. The
+service is managed via ssh into the machine, and running the
+``restart_buildmaster_when_not_running`` script. It uses a python2.7 venv.
 
 Everything has been tested with builbot 0.8.8 on CPython2.7
 Note you must pin "automat==20.2" "incremental==21.3.0"
 Testing must use "pytest<4"
 
+
 Patch the source
 ================
 
-buildbot 0.8.8 is really old. There are some patches needed, see patches.patch
+buildbot 0.8.8 is really old. There are some patches needed, see patches.patch.
+If you are starting from a new db, you will need to also patch the installed
+migrate and buildbot packages for newer sqlite3: patch-migrate.patch,
+patch-buildbot.patch.
 
 How to hack the PyPy buildbot
 ==============================
@@ -36,7 +42,7 @@ How to run the PyPy buildbot
 If you want to run buildbot in production, you need to make sure that the
 function ``pypybuildbot.util.we_are_debugging`` returns ``False`` in your
 environment.  At the moment of writing, debugging is enabled everywhere but on
-cobra.
+cobra, which is not really where the buildbot runs.
 
 You still need to fill ``master/slaveinfo.py`` with the passwords of the
 various slaves you want to use.

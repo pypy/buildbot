@@ -27,14 +27,25 @@ class CustomForceScheduler(ForceScheduler):
         return ForceScheduler.force(self, owner, builder_name, **kwargs)
 
 
+import re as _re
+_PYPERFORMANCE_SPEC_RE = _re.compile(
+    r'^('
+    r'pyperformance\s*([><=!~^][^;]*)?'          # PyPI: pyperformance, pyperformance==1.2
+    r'|git\+https://github\.com/python/pyperformance(@\S+)?'  # GitHub: python/pyperformance only
+    r')$'
+)
+
 class BenchmarkForceScheduler(CustomForceScheduler):
     '''
-    A ForceScheduler with an extra field: benchmark_branch
+    A ForceScheduler with extra fields: benchmark_branch and pyperformance_spec
     '''
     def __init__(self, name, builderNames,
             benchmark_branch=StringParameter(name="benchmark_branch",
-                                             label="Benchmark repo branch:",
+                                             label="Legacy benchmark repo branch:",
                                              default="default", length=20),
+            pyperformance_spec=StringParameter(name="pyperformance_spec",
+                                               label="pyperformance pip specifier:",
+                                               default="pyperformance", length=60),
             properties=[ CodebaseParameter('PyPy repo', label='PyPy Repo')],
             **kwargs):
         CustomForceScheduler.__init__(self, name, builderNames, **kwargs)
@@ -45,8 +56,19 @@ class BenchmarkForceScheduler(CustomForceScheduler):
                          pypy_branch)
         self.all_fields.append(benchmark_branch)
         self.forcedProperties.append(benchmark_branch)
+        self.all_fields.append(pyperformance_spec)
+        self.forcedProperties.append(pyperformance_spec)
 
     def force(self, owner, builderNames=None, **kwargs):
+        spec = kwargs.get('pyperformance_spec', 'pyperformance')
+        if isinstance(spec, list):
+            spec = spec[0] if spec else 'pyperformance'
+        spec = spec.strip()
+        if not _PYPERFORMANCE_SPEC_RE.match(spec):
+            raise ValidationError(
+                "pyperformance pip specifier must be 'pyperformance', "
+                "'pyperformance==<version>', or "
+                "'git+https://github.com/python/pyperformance@<ref>'")
         CustomForceScheduler.force(self, owner, builderNames, **kwargs)
 
 # Forbid "stop build" without a reason that starts with "!"
@@ -239,13 +261,19 @@ pypyJITTranslatedTestFactoryAARCH64 = pypybuilds.Translated(
     pypyjit=True,
     app_tests=True)
 
-pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker')
+pypyJITBenchmarkFactory = pypybuilds.JITBenchmark(host='benchmarker',
+                                                         upload_credentials=upload_credentials)
+
 pypyJITBenchmarkFactory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker',
-                                                           postfix='-64')
+                                                           postfix='-64',
+                                                           upload_credentials=upload_credentials)
+
 pypyJITBenchmark2Factory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            host='benchmarker2',
-                                                           postfix='-64')
+                                                           postfix='-64',
+                                                           upload_credentials=upload_credentials)
+
 pypyJITBenchmarkFactory64_speed = pypybuilds.JITBenchmarkSingleRun(
     platform='linux64',
     host='speed_python',
@@ -342,7 +370,7 @@ BuildmasterConfig = {
         # in the "Revision" property.  Any build with such a "Revision" property will
         # use exactly that revision (at least in our nightly builds).
         GitPoller('https://github.com/pypy/pypy', workdir='gitpoller-workdir',
-                 branches=['main','py3.10', 'py3.11'], pollinterval=20*60),
+                 branches=['main','py3.12', 'py3.11'], pollinterval=20*60),
         ],
 
     'schedulers': [
@@ -392,7 +420,6 @@ BuildmasterConfig = {
         ),
 
         Nightly("nightly-1-00", [
-            JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
             JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
@@ -401,7 +428,6 @@ BuildmasterConfig = {
         ),
 
         Nightly("nightly-1-03", [
-            JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
             JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
@@ -439,17 +465,17 @@ BuildmasterConfig = {
             onlyIfChanged=True
         ),
 
-        Nightly("nightly-own-py3.10", [
+        Nightly("nightly-own-py3.12", [
             LINUX32OWN,                # on bencher4_32, uses all cores
             LINUX64OWN,                # on bencher4, uses all cores
             AARCH64OWN,
             WIN64OWN,                  # on SalsaSalsa
             MACOS64OWN,
             MACOSARM64OWN,
-            ], branch="py3.10", hour=4, minute=30,
+            ], branch="py3.12", hour=4, minute=30,
             onlyIfChanged=True
         ),
-        Nightly("nightly-jit-py3.10", [
+        Nightly("nightly-jit-py3.12", [
             JITLINUX32,                # on bencher4_32, uses 1 core
             JITLINUX64,                # on bencher4, uses 1 core
             JITAARCH64,
@@ -457,13 +483,12 @@ BuildmasterConfig = {
             JITMACOSARM64,
             JITWIN64,                  # on SalsaSalsa
             # JITLINUX_S390X,
-            ], branch="py3.10", hour=5, minute=30,
+            ], branch="py3.12", hour=5, minute=30,
             onlyIfChanged=True
         ),
 
         BenchmarkForceScheduler('Force Build ',
             builderNames=[
-                        JITBENCH64,
                         JITBENCH64_2,
                         JITBENCH64_NEW,
                     ], properties=[]),
@@ -650,7 +675,7 @@ BuildmasterConfig = {
                    "locks": [AARCH64Lock.access('counting')],
                   },
                   {"name": JITBENCH64,
-                   "slavenames": ["benchmarker"],
+                   "slavenames": ["benchmarker", "benchmarker2"],
                    "builddir": JITBENCH64,
                    "factory": pypyJITBenchmarkFactory64,
                    "category": "benchmark-run",
