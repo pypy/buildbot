@@ -420,7 +420,6 @@ BuildmasterConfig = {
         ),
 
         Nightly("nightly-1-00", [
-            JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
             JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
@@ -429,7 +428,6 @@ BuildmasterConfig = {
         ),
 
         Nightly("nightly-1-03", [
-            JITBENCH64,                # on benchmarker, uses 1 core (in part exclusively)
             JITBENCH64_2,              
             #JITBENCH64_NEW,            # on speed64, uses 1 core (in part exclusively)
 
@@ -491,7 +489,6 @@ BuildmasterConfig = {
 
         BenchmarkForceScheduler('Force Build ',
             builderNames=[
-                        JITBENCH64,
                         JITBENCH64_2,
                         JITBENCH64_NEW,
                     ], properties=[]),
