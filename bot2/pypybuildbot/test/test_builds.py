@@ -19,6 +19,9 @@ class FakeProperties(object):
     def __setitem__(self, name, value):
         self.properties[name] = value
 
+    def has_key(self, name):
+        return name in self.properties
+
     def render(self, x):
         return x
 
@@ -103,10 +106,46 @@ def test_pypy_upload():
     rebuilt.runCommand = lambda *args: FakeDeferred()
     rebuilt.start()
     assert pth.join('mstr').check(dir=True)
-    assert rebuilt.masterdest == str(pth.join('mstr', 'trunk',
+    assert rebuilt.masterdest == str(pth.join('mstr', 'main',
                                               'base-123-ea5ca8'))
-    assert rebuilt.symlinkname == str(pth.join('mstr', 'trunk',
+    assert rebuilt.symlinkname == str(pth.join('mstr', 'main',
                                                'base-latest'))
+
+def _run_upload_with_extension(properties):
+    pth = py.test.ensuretemp('buildbot')
+    # basename carries the archive extension as a build-time property, with a
+    # fallback default, exactly as the Translated/NightlyBuild factories build it
+    inst = builds.PyPyUpload(slavesrc='slavesrc', masterdest=str(pth.join('mstr')),
+                             basename='base-%(final_file_name)s%(extension:~.tar.bz2)s',
+                             workdir='.', blocksize=100)
+    factory = inst._getStepFactory().factory
+    kw = inst._getStepFactory().kwargs
+    rebuilt = factory(**kw)
+    rebuilt.build = FakeBuild(properties)
+    rebuilt.setStepStatus(FakeStepStatus())
+    rebuilt.runCommand = lambda *args: FakeDeferred()
+    rebuilt.start()
+    return rebuilt
+
+def test_pypy_upload_extension_from_property():
+    # the worker reported an 'extension' property; it must win over the default
+    rebuilt = _run_upload_with_extension(
+        {'branch': None, 'final_file_name': '123-ea5ca8', 'extension': '.tar.gz'})
+    pth = py.test.ensuretemp('buildbot')
+    assert rebuilt.masterdest == str(pth.join('mstr', 'main',
+                                              'base-123-ea5ca8.tar.gz'))
+    assert rebuilt.symlinkname == str(pth.join('mstr', 'main',
+                                               'base-latest.tar.gz'))
+
+def test_pypy_upload_extension_default():
+    # no 'extension' property -> fall back to the platform default in the fragment
+    rebuilt = _run_upload_with_extension(
+        {'branch': None, 'final_file_name': '123-ea5ca8'})
+    pth = py.test.ensuretemp('buildbot')
+    assert rebuilt.masterdest == str(pth.join('mstr', 'main',
+                                              'base-123-ea5ca8.tar.bz2'))
+    assert rebuilt.symlinkname == str(pth.join('mstr', 'main',
+                                               'base-latest.tar.bz2'))
 
 class TestPytestCmd(object):
     
@@ -155,10 +194,10 @@ S a/c.py:test_four
         summary = builder.summary_by_branch_and_revision[('trunk', '123')]
         assert summary.to_tuple() == (1, 1, 2, 0)
 
-    def test_branch_is_None(self): 
+    def test_branch_is_None(self):
         step, cmd, builder = self._create(log='', rev='123', branch=None)
         step.commandComplete(cmd)
-        assert ('trunk', '123') in builder.summary_by_branch_and_revision
+        assert ('main', '123') in builder.summary_by_branch_and_revision
 
     def test_trailing_slash(self):
         step, cmd, builder = self._create(log='', rev='123', branch='branch/foo/')

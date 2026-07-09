@@ -69,6 +69,7 @@ class PyPyUpload(transfer.FileUpload):
         #
         assert '%(final_file_name)s' in self.basename
         symname = self.basename.replace('%(final_file_name)s', 'latest')
+        symname = WithProperties(symname).getRenderingFor(self.build)
         assert '%' not in symname
         self.symlinkname = os.path.join(masterdest, symname)
         #
@@ -107,6 +108,7 @@ class PyPyDownload(transfer.FileDownload):
             basename = basename.replace(':', '-')
         else:
             basename = self.basename.replace('%(final_file_name)s', 'latest')
+            basename = WithProperties(basename).getRenderingFor(self.build)
             assert '%' not in basename
 
         self.mastersrc = os.path.join(mastersrc, basename)
@@ -706,9 +708,7 @@ class Translated(factory.BuildFactory):
                 },
             ))
         nightly = '~/nightly/'
-        extension = Property('extension', default='')
-        if not extension:
-            extension = get_extension(platform)
+        extension = '%(extension:~' + get_extension(platform) + ')s'
         pypy_c_rel = "build/" + name + extension
         self.addStep(PyPyUpload(slavesrc=WithProperties(pypy_c_rel),
                                 masterdest=WithProperties(nightly),
@@ -748,14 +748,12 @@ class TranslatedTests(factory.BuildFactory):
             description="Clear pypy-c",
             command=['rm', '-rf', 'pypy-c'],
             workdir='.'))
-        extension = Property('extension', default='')
-        if not extension:
-            extension = get_extension(platform)
+        extension = '%(extension:~' + get_extension(platform) + ')s'
         name = build_name(platform, pypyjit, translationArgs, placeholder='%(final_file_name)s') + extension
         self.addStep(PyPyDownload(
             basename=name,
             mastersrc='~/nightly',
-            slavedest='pypy_build' + extension,
+            slavedest=WithProperties('pypy_build' + extension),
             workdir='pypy-c'))
 
         # extract downloaded file
@@ -764,7 +762,7 @@ class TranslatedTests(factory.BuildFactory):
         else:
             self.addStep(ShellCmd(
                 description="decompress pypy-c",
-                command=['tar', '--extract', '--file=pypy_build'+ extension, '--strip-components=1', '--directory=.'],
+                command=['tar', '--extract', WithProperties('--file=pypy_build' + extension), '--strip-components=1', '--directory=.'],
                 workdir='pypy-c',
                 haltOnFailure=True,
                 ))
@@ -834,9 +832,7 @@ class NightlyBuild(factory.BuildFactory):
             haltOnFailure=True,
             workdir='build'))
         nightly = '~/nightly/'
-        extension = Property('extension', default='')
-        if not extension:
-            extension = get_extension(platform)
+        extension = '%(extension:~' + get_extension(platform) + ')s'
         pypy_c_rel = "build/" + name + extension
         self.addStep(PyPyUpload(slavesrc=WithProperties(pypy_c_rel),
                                 masterdest=WithProperties(nightly),
