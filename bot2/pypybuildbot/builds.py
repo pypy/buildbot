@@ -706,7 +706,9 @@ class Translated(factory.BuildFactory):
                 },
             ))
         nightly = '~/nightly/'
-        extension = get_extension(platform)
+        extension = Property('extension', default='')
+        if not extension:
+            extension = get_extension(platform)
         pypy_c_rel = "build/" + name + extension
         self.addStep(PyPyUpload(slavesrc=WithProperties(pypy_c_rel),
                                 masterdest=WithProperties(nightly),
@@ -746,7 +748,9 @@ class TranslatedTests(factory.BuildFactory):
             description="Clear pypy-c",
             command=['rm', '-rf', 'pypy-c'],
             workdir='.'))
-        extension = get_extension(platform)
+        extension = Property('extension', default='')
+        if not extension:
+            extension = get_extension(platform)
         name = build_name(platform, pypyjit, translationArgs, placeholder='%(final_file_name)s') + extension
         self.addStep(PyPyDownload(
             basename=name,
@@ -830,7 +834,9 @@ class NightlyBuild(factory.BuildFactory):
             haltOnFailure=True,
             workdir='build'))
         nightly = '~/nightly/'
-        extension = get_extension(platform)
+        extension = Property('extension', default='')
+        if not extension:
+            extension = get_extension(platform)
         pypy_c_rel = "build/" + name + extension
         self.addStep(PyPyUpload(slavesrc=WithProperties(pypy_c_rel),
                                 masterdest=WithProperties(nightly),
