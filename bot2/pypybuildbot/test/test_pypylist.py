@@ -1,5 +1,7 @@
 import py
-from pypybuildbot.pypylist import PyPyTarball, PyPyList
+from twisted.web.static import getTypeAndEncoding
+
+from pypybuildbot.pypylist import PyPyTarball, PyPyList, ReleaseList
 
 def test_pypytarball_svn():
     t = PyPyTarball('pypy-c-jit-75654-linux.tar.bz2', '.')
@@ -67,6 +69,37 @@ def test_pypy_list(tmpdir):
     pypylist = PyPyList(os.path.dirname(__file__))
     files = pypylist.listNames()
     assert os.path.basename(__file__) in files
+
+
+def test_release_archives_are_octet_streams(tmpdir):
+    releases = ReleaseList(tmpdir.strpath)
+    for filename in [
+        'pypy3.11-v7.3.23-linux64.tar.bz2',
+        'pypy3.11-v7.3.23-linux64.tar.gz',
+    ]:
+        tmpdir.join(filename).write('archive contents')
+        release = releases.getChild(filename, None)
+        assert release.type == 'application/octet-stream'
+        assert release.encoding is None
+
+
+def test_other_compressed_release_files_keep_their_content_encoding(tmpdir):
+    releases = ReleaseList(tmpdir.strpath)
+    for filename, expected_encoding in [
+        ('release-notes.txt.bz2', 'bzip2'),
+        ('release-notes.txt.gz', 'gzip'),
+    ]:
+        tmpdir.join(filename).write('compressed contents')
+        release = releases.getChild(filename, None)
+        assert release.type is None
+        content_type, content_encoding = getTypeAndEncoding(
+            filename,
+            release.contentTypes,
+            release.contentEncodings,
+            release.defaultType,
+        )
+        assert content_type == 'text/plain'
+        assert content_encoding == expected_encoding
 
 def test_dir_render(tmpdir):
     # Create a bunch of directories, including one named trunk,
