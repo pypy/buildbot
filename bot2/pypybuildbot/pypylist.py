@@ -256,6 +256,22 @@ class NumpyStatusList(PyPyList):
 
 
 class ReleaseList(File):
+    archiveSuffixes = ('.tar.bz2', '.tar.gz')
+
+    def createSimilarFile(self, path):
+        child = File.createSimilarFile(self, path)
+        if path.lower().endswith(self.archiveSuffixes):
+            # Twisted's File treats .gz and .bz2 as pre-compressed variants of
+            # another resource by default.  It uses the preceding suffix for
+            # Content-Type and sends the compression suffix as
+            # Content-Encoding.
+            # For these downloadable tar archives compression is part of the
+            # file format.  A content encoding may make clients transparently
+            # decompress and change the downloaded bytes.
+            child.type = 'application/octet-stream'
+            child.encoding = None
+        return child
+
     def directoryListing(self):
         return ReleaseLister(self.path,
                                 self.listNames(),
