@@ -77,7 +77,7 @@ class PyPyTarball(object):
             self.date = datetime.date(2000, 1, 1)
 
     def parse_filename(self):
-        for ext in ['.tar.bz2', '.zip']:
+        for ext in ['.tar.bz2', '.zip', '.tar.gz']:
             if self.filename.endswith(ext):
                 break
         else:
