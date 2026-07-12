@@ -256,7 +256,7 @@ class NumpyStatusList(PyPyList):
 
 
 class ReleaseList(File):
-    archiveSuffixes = ('.tar.bz2', '.tar.gz')
+    archiveSuffixes = ('.tar.bz2', '.tar.gz', '.tar.gz')
 
     def createSimilarFile(self, path):
         child = File.createSimilarFile(self, path)
