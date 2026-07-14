@@ -175,6 +175,9 @@ class PyPyDirectoryLister(DirectoryLister):
 
     def render(self, request):
         self.status = request.site.buildbot_service.getStatus()
+        # builder_name -> ({(branch, rev): OutcomeSummary}, category), computed
+        # from the build logs once per builder per page render.
+        self._summaries_cache = {}
         return DirectoryLister.render(self, request)
 
     def _getFilesAndDirectories(self, directory):
@@ -230,18 +233,16 @@ class PyPyDirectoryLister(DirectoryLister):
         return branch
 
     def _get_summary_and_category(self, builder_name, branch, rev):
+        # Read results from the build logs (via summary.revision_summaries),
+        # the same source the summary page uses.  Memoize per builder so each
+        # builder's logs are scanned only once per page render.
+        from pypybuildbot.summary import revision_summaries
         try:
-            builder = self.status.getBuilder(builder_name)
-            return builder.summary_by_branch_and_revision[(branch, rev)], builder.category
-        except (AttributeError, KeyError):
-            return None, None
-            # for testing
-            ## from pypybuildbot.summary import OutcomeSummary
-            ## import random
-            ## if random.choice([True, True, True, False]):
-            ##     return OutcomeSummary(1000, 0, 2, 4), None
-            ## else:
-            ##     return OutcomeSummary(990, 10, 2, 4), None
+            summaries, category = self._summaries_cache[builder_name]
+        except KeyError:
+            summaries, category = revision_summaries(self.status, builder_name)
+            self._summaries_cache[builder_name] = (summaries, category)
+        return summaries.get((branch, rev)), category
 
     def _get_summary_class(self, summary, rowClass):
         if summary is None:

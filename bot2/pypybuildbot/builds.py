@@ -154,33 +154,12 @@ class Translate(ShellCmd):
 
 
 class PytestCmd(ShellCmd):
-    def commandComplete(self, cmd):
-        from pypybuildbot.summary import RevisionOutcomeSet
-        if 'pytestLog' not in cmd.logs:
-            return
-        pytestLog = cmd.logs['pytestLog']
-        outcome = RevisionOutcomeSet(None)
-        outcome.populate(pytestLog)
-        summary = outcome.get_summary()
-        build_status = self.build.build_status
-        builder = build_status.builder
-        properties = build_status.getProperties()
-        if not hasattr(builder, 'summary_by_branch_and_revision'):
-            builder.summary_by_branch_and_revision = {}
-        try:
-            rev = properties['got_revision']
-            branch = map_branch_name(properties['branch'])
-            if branch.endswith('/'):
-                branch = branch[:-1]
-        except KeyError:
-            return
-        else:
-            d = builder.summary_by_branch_and_revision
-            key = (branch, rev)
-            if key in d:
-                summary += d[key]
-            d[key] = summary
-        builder.saveYourself()
+    # A pytest step whose result log (see logfiles={'pytestLog': ...}) is the
+    # single source of truth for test results.  The summary page and the
+    # nightly download page both parse it on demand via pypybuildbot.summary
+    # (RevisionOutcomeSet / revision_summaries); nothing is cached at build
+    # time.
+    pass
 
 class SuccessAlways(ShellCmd):
     def evaluateCommand(self, cmd):

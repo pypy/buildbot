@@ -487,7 +487,7 @@ def add_builds(builder, builds):
     builder.nextBuildNumber = n
 
 
-METABRANCH = '<trunk>'
+METABRANCH = 'main'
 
 
 class TestSummary(object):
@@ -723,9 +723,13 @@ class TestSummary(object):
         for m in re.finditer(r'builder=(\w+)&amp;builds=(\d+)', out):
             runs.append((m.group(1), int(m.group(2))))
 
-        assert runs == [('builder1', 0),
-                        ('builder1', 1),
-                        ('builder1', 2)]
+        # _builder_num() picks an arbitrary builder from each run's map
+        # (map.values()[0]), so which builder name appears is dict-ordering
+        # dependent across interpreters.  Only assert the meaningful part: one
+        # drill-down anchor per build, numbered 0..2, each pointing at one of
+        # the queried builders.
+        assert [n for _, n in runs] == [0, 1, 2]
+        assert set(b for b, _ in runs) <= set(['builder0', 'builder1'])
 
         assert 'TEST1' in out
 
@@ -890,12 +894,12 @@ class TestSummary(object):
         builder2.getBuild(0).finished = 1227913200 # 29 Nov 2008
 
         s = summary.Summary()
-        s._now = lambda: 1228604400 # 7 Dec 2008
+        s._now = lambda: 1229209200 # 15 Dec 2008
         req = FakeRequest([builder1, builder2])
         out = s.body(req)
 
         assert '(03 Dec..05 Dec)' in out
-        # pruning of builds older than 7 days
+        # pruning of builds older than 14 days (29 Nov is 15 days before 15 Dec)
         assert '(29 Nov)' not in out
 
     def test_fail_body_txt(self):

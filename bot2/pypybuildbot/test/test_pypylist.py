@@ -1,7 +1,12 @@
+import os
 import py
 from twisted.web.static import getTypeAndEncoding
+from buildbot.status import builder as status_builder
 
-from pypybuildbot.pypylist import PyPyTarball, PyPyList, ReleaseList
+from pypybuildbot import summary
+from pypybuildbot.pypylist import PyPyTarball, PyPyList, ReleaseList, \
+    PyPyDirectoryLister
+from pypybuildbot.test.test_summary import FakeMaster, add_builds
 
 def test_pypytarball_svn():
     t = PyPyTarball('pypy-c-jit-75654-linux.tar.bz2', '.')
@@ -133,6 +138,9 @@ def load_BuildmasterConfig():
     glob = {'httpPortNumber': 80,
             'slavePortnum': 1234,
             'passwords': {},
+            # master.cfg injects these into master.py's namespace before
+            # execfile'ing it; mirror that here so the config loads.
+            'upload_credentials': None,
             'load': load,
             'os': os}
     execfile(str(master_py), glob)
@@ -152,17 +160,65 @@ def test_builder_names():
     t = PyPyTarball('pypy-c-jit-76867-linux.tar.bz2', '.')
     check_builder_names(t, 'own-linux-x86-32', 'pypy-c-jit-linux-x86-32')
 
-    t = PyPyTarball('pypy-c-nojit-76867-linux.tar.bz2', '.')
-    check_builder_names(t, 'own-linux-x86-32', 'pypy-c-app-level-linux-x86-32')
-
     t = PyPyTarball('pypy-c-jit-76867-macos_x86_64.tar.bz2', '.')
     check_builder_names(t, 'own-macos-x86-64', 'pypy-c-jit-macos-x86-64')
 
     t = PyPyTarball('pypy-c-jit-76867-linux64.tar.bz2', '.')
     check_builder_names(t, 'own-linux-x86-64', 'pypy-c-jit-linux-x86-64')
 
-    t = PyPyTarball('pypy-c-jit-76867-win32.tar.bz2', '.')
-    check_builder_names(t, 'own-win-x86-32', 'pypy-c-jit-win-x86-32')
+    t = PyPyTarball('pypy-c-jit-76867-win64.tar.bz2', '.')
+    check_builder_names(t, 'own-win-x86-64', 'pypy-c-jit-win-x86-64')
 
-    t = PyPyTarball('pypy-c-nojit-76867-linux64.tar.bz2', '.')
-    check_builder_names(t, 'own-linux-x86-64', 'pypy-c-app-level-linux-x86-64')
+
+def _status_with_builds(builder_name, builds_list, category=None):
+    # build a real buildbot Status over fake builders that carry finished
+    # builds with pytest logs, mirroring test_summary's setup
+    summary.outcome_set_cache.clear()
+    master = FakeMaster([])
+    builder = status_builder.BuilderStatus(builder_name, category, master, '')
+    add_builds(builder, builds_list)
+    return status_builder.Status(FakeMaster([builder]))
+
+
+def test_revision_summaries_from_text_log():
+    status = _status_with_builds('own-linux-x86-64',
+        [('12345:abcdef',
+          "F a/b.py:test_one\n. a/b.py:test_two\ns a/c.py:test_three\n")],
+        category='linux64')
+    summaries, category = summary.revision_summaries(status, 'own-linux-x86-64')
+    assert category == 'linux64'
+    assert summaries[('main', '12345:abcdef')].to_tuple() == (1, 1, 1, 0)
+
+
+def test_revision_summaries_from_xml_log():
+    # junitxml results must produce the same summary the summary page shows;
+    # the old build-time cache (populate() only) could not parse xml at all.
+    xml = open(os.path.join(os.path.dirname(__file__), 'log.xml')).read()
+    status = _status_with_builds('own-linux-x86-64', [('999:cafe', xml)])
+    summaries, _ = summary.revision_summaries(status, 'own-linux-x86-64')
+    assert summaries[('main', '999:cafe')].to_tuple() == (12, 2, 1, 0)
+
+
+def test_lister_reads_results_from_logs():
+    status = _status_with_builds('own-linux-x86-64',
+        [('12345:abcdef', "F a/b.py:test_one\n. a/b.py:test_two\n")],
+        category='linux64')
+    lister = PyPyDirectoryLister('.')
+    lister.status = status
+    lister._summaries_cache = {}
+
+    s, cat = lister._get_summary_and_category(
+        'own-linux-x86-64', 'main', '12345:abcdef')
+    assert str(s) == '1, 1 F, 0 s, 0 x'
+    assert cat == 'linux64'
+
+    # a revision with no build -> None (renders blank on the page)
+    s2, _ = lister._get_summary_and_category('own-linux-x86-64', 'main', 'nope')
+    assert s2 is None
+
+    # results for an unknown builder -> None, not an exception
+    s3, cat3 = lister._get_summary_and_category('no-such-builder', 'main', 'x')
+    assert (s3, cat3) == (None, None)
+
+    # the builder's logs are scanned only once per render (memoized)
+    assert 'own-linux-x86-64' in lister._summaries_cache

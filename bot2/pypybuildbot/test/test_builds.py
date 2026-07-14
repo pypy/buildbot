@@ -1,5 +1,4 @@
 import py
-from cStringIO import StringIO
 from pypybuildbot import builds
 
 class FakeProperties(object):
@@ -146,77 +145,6 @@ def test_pypy_upload_extension_default():
                                               'base-123-ea5ca8.tar.bz2'))
     assert rebuilt.symlinkname == str(pth.join('mstr', 'main',
                                                'base-latest.tar.bz2'))
-
-class TestPytestCmd(object):
-    
-    class Fake(object):
-        def __init__(self, **kwds):
-            self.__dict__.update(kwds)
-
-    class FakeBuildStatus(Fake):
-        def getProperties(self):
-            return self.properties
-
-    class FakeBuilder(Fake):
-        def saveYourself(self):
-            pass
-
-    def _create(self, log, rev, branch):
-        if isinstance(log, str):
-            log = StringIO(log)
-        step = builds.PytestCmd()
-        step.build = self.Fake()
-        step.build.build_status = self.FakeBuildStatus(properties={'got_revision': rev,
-                                                                   'branch': branch})
-        step.build.build_status.builder = builder = self.FakeBuilder()
-        cmd = self.Fake(logs={'pytestLog': log})
-        return step, cmd, builder
-
-    def test_no_log(self):
-        step = builds.PytestCmd()
-        cmd = self.Fake(logs={})
-        assert step.commandComplete(cmd) is None
-
-    def test_empty_log(self):
-        step, cmd, builder = self._create(log='', rev='123', branch='trunk')
-        step.commandComplete(cmd)
-        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
-        assert summary.to_tuple() == (0, 0, 0, 0)
-
-    def test_summary(self):
-        log = """F a/b.py:test_one
-. a/b.py:test_two
-s a/b.py:test_three
-S a/c.py:test_four
-"""
-        step, cmd, builder = self._create(log=log, rev='123', branch='trunk')
-        step.commandComplete(cmd)
-        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
-        assert summary.to_tuple() == (1, 1, 2, 0)
-
-    def test_branch_is_None(self):
-        step, cmd, builder = self._create(log='', rev='123', branch=None)
-        step.commandComplete(cmd)
-        assert ('main', '123') in builder.summary_by_branch_and_revision
-
-    def test_trailing_slash(self):
-        step, cmd, builder = self._create(log='', rev='123', branch='branch/foo/')
-        step.commandComplete(cmd)
-        assert ('branch/foo', '123') in builder.summary_by_branch_and_revision
-        
-    def test_multiple_logs(self):
-        log = """F a/b.py:test_one
-. a/b.py:test_two
-s a/b.py:test_three
-S a/c.py:test_four
-"""
-        step, cmd, builder = self._create(log=log, rev='123', branch='trunk')
-        step.commandComplete(cmd)
-        cmd.logs['pytestLog'] = StringIO(log) # "reopen" the file
-        step.commandComplete(cmd)
-        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
-        assert summary.to_tuple() == (2, 2, 4, 0)
-
 
 class TestParseRevision(object):
 

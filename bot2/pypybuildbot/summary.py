@@ -681,6 +681,65 @@ default_value = make_subst('main', ['main', '', None, 'default'])
 category_name = make_subst(None, '-')
 nocat_value = make_subst("-", None)
 
+_default_branch_cache = {}
+
+def fish_default_branch(status, builderName):
+    # the branch a builder builds by default, read from its build factory
+    try:
+        return _default_branch_cache[builderName]
+    except KeyError:
+        pass
+    builder = status.botmaster.builders[builderName]
+    factory = builder.config.factory
+    branch = None
+    for step in factory.steps:
+        kw = step.kwargs
+        if 'defaultBranch' in kw:
+            if kw.get('explicitBranch'):
+                branch = kw['defaultBranch']
+            break
+    _default_branch_cache[builderName] = branch
+    return branch
+
+def branch_of_build(status, build):
+    branch = getProp(build, 'explicitBranch')
+    # fish
+    if branch is None:
+        builderName = build.getBuilder().getName()
+        branch = fish_default_branch(status, builderName)
+        branch = branch or getProp(build, 'branch')
+    return branch
+
+def revision_summaries(status, builder_name, num_builds=5*N):
+    """Compute {(branch, got_revision): OutcomeSummary} for a builder, plus its
+    category, from the builder's recent build logs.
+
+    Both the summary page and the nightly download page go through this (via
+    outcome_set_cache), so they share a single source of truth for test
+    results instead of the download page relying on a separately maintained
+    cache.  Returns ({}, None) for an unknown builder.
+    """
+    try:
+        builderStatus = status.getBuilder(builder_name)
+    except KeyError:
+        return {}, None
+    if builderStatus is None:
+        return {}, None
+    summaries = {}
+    for build in builderStatus.generateFinishedBuilds(num_builds=num_builds):
+        rev = getProp(build, 'got_revision')
+        if rev is None:
+            continue
+        branch = meta_branch_name(branch_of_build(status, build))
+        outcome_set = outcome_set_cache.get(status,
+                                            (builder_name, build.getNumber()))
+        summary = outcome_set.get_summary()
+        key = (branch, rev)
+        if key in summaries:
+            summary = summaries[key] + summary
+        summaries[key] = summary
+    return summaries, builderStatus.category
+
 def safe_int(v):
     try:
         return int(v)
@@ -716,7 +775,6 @@ class Summary(HtmlResource):
     def __init__(self, categories=[], branch_order_prefixes=[]):
         HtmlResource.__init__(self)
         self.putChild('longrepr', LongRepr())
-        self._defaultBranchCache = {}
         self.categories = categories
         self.branch_order_prefixes = branch_order_prefixes
 
@@ -748,30 +806,10 @@ class Summary(HtmlResource):
                 del runs[rev]
 
     def _fish_defaultBranch(self, status, builderName):
-        try:
-            return self._defaultBranchCache[builderName]
-        except KeyError:
-            pass
-        builder = status.botmaster.builders[builderName]
-        factory = builder.config.factory
-        branch = None
-        for step in factory.steps:
-            kw = step.kwargs
-            if 'defaultBranch' in kw:
-                if kw.get('explicitBranch'):
-                    branch = kw['defaultBranch']
-                break
-        self._defaultBranchCache[builderName] = branch
-        return branch
+        return fish_default_branch(status, builderName)
 
     def _get_branch(self, status, build):
-        branch = getProp(build, 'explicitBranch')
-        # fish
-        if branch is None:
-            builderName = build.getBuilder().getName()
-            branch = self._fish_defaultBranch(status, builderName)
-            branch = branch or getProp(build, 'branch')
-        return branch
+        return branch_of_build(status, build)
 
     def _now(self):
         return time.time()
