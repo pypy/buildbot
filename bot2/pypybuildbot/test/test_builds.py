@@ -146,6 +146,107 @@ def test_pypy_upload_extension_default():
     assert rebuilt.symlinkname == str(pth.join('mstr', 'main',
                                                'base-latest.tar.bz2'))
 
+class TestPytestCmd(object):
+
+    class Fake(object):
+        def __init__(self, **kwds):
+            self.__dict__.update(kwds)
+
+    class FakeBuildStatus(Fake):
+        def getProperties(self):
+            return self.properties
+
+    class FakeBuilder(Fake):
+        def saveYourself(self):
+            pass
+
+    class FakeLog(object):
+        # a status log exposes both getText() (used to detect junitxml) and
+        # readlines() (used by the resultlog parser)
+        def __init__(self, text):
+            self.text = text
+        def getText(self):
+            return self.text
+        def readlines(self):
+            return [l + '\n' for l in self.text.splitlines()]
+
+    def _make(self, log, properties):
+        step = builds.PytestCmd()
+        step.build = self.Fake()
+        step.build.build_status = self.FakeBuildStatus(properties=properties)
+        step.build.build_status.builder = builder = self.FakeBuilder()
+        cmd = self.Fake(logs={'pytestLog': self.FakeLog(log)})
+        return step, cmd, builder
+
+    def _create(self, log, rev, branch):
+        return self._make(log, {'got_revision': rev, 'branch': branch})
+
+    def test_no_log(self):
+        step = builds.PytestCmd()
+        cmd = self.Fake(logs={})
+        assert step.commandComplete(cmd) is None
+
+    def test_empty_log(self):
+        step, cmd, builder = self._create(log='', rev='123', branch='trunk')
+        step.commandComplete(cmd)
+        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
+        assert summary.to_tuple() == (0, 0, 0, 0)
+
+    def test_summary(self):
+        log = """F a/b.py:test_one
+. a/b.py:test_two
+s a/b.py:test_three
+S a/c.py:test_four
+"""
+        step, cmd, builder = self._create(log=log, rev='123', branch='trunk')
+        step.commandComplete(cmd)
+        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
+        assert summary.to_tuple() == (1, 1, 2, 0)
+
+    def test_branch_is_None(self):
+        step, cmd, builder = self._create(log='', rev='123', branch=None)
+        step.commandComplete(cmd)
+        assert ('main', '123') in builder.summary_by_branch_and_revision
+
+    def test_trailing_slash(self):
+        step, cmd, builder = self._create(log='', rev='123', branch='branch/foo/')
+        step.commandComplete(cmd)
+        assert ('branch/foo', '123') in builder.summary_by_branch_and_revision
+
+    def test_missing_branch_property_still_records(self):
+        # a nightly/forced trigger may set no 'branch' property; buildbot's
+        # real Properties raises KeyError on the missing key.  The result must
+        # still be recorded (under the default branch 'main'), else the nightly
+        # page shows None though the summary page shows the results.
+        step, cmd, builder = self._make(
+            '. a/b.py:test_one\n', {'got_revision': '171295:eb76a8b4666f'})
+        step.commandComplete(cmd)
+        assert ('main', '171295:eb76a8b4666f') in \
+            builder.summary_by_branch_and_revision
+
+    def test_xml_log(self):
+        # junitxml logs must be parsed like the summary page (populate_xml),
+        # not fed to the resultlog parser, which would produce garbage failures
+        import os
+        xml = open(os.path.join(os.path.dirname(__file__), 'log.xml')).read()
+        step, cmd, builder = self._create(log=xml, rev='123', branch='main')
+        step.commandComplete(cmd)
+        summary = builder.summary_by_branch_and_revision[('main', '123')]
+        assert summary.to_tuple() == (12, 2, 1, 0)
+
+    def test_multiple_logs(self):
+        log = """F a/b.py:test_one
+. a/b.py:test_two
+s a/b.py:test_three
+S a/c.py:test_four
+"""
+        step, cmd, builder = self._create(log=log, rev='123', branch='trunk')
+        step.commandComplete(cmd)
+        step.commandComplete(cmd)
+        summary = builder.summary_by_branch_and_revision[('trunk', '123')]
+        assert summary.to_tuple() == (2, 2, 4, 0)
+
+
 class TestParseRevision(object):
 
     def setup_method(self, mth):

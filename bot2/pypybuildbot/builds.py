@@ -154,12 +154,47 @@ class Translate(ShellCmd):
 
 
 class PytestCmd(ShellCmd):
-    # A pytest step whose result log (see logfiles={'pytestLog': ...}) is the
-    # single source of truth for test results.  The summary page and the
-    # nightly download page both parse it on demand via pypybuildbot.summary
-    # (RevisionOutcomeSet / revision_summaries); nothing is cached at build
-    # time.
-    pass
+    def commandComplete(self, cmd):
+        from pypybuildbot.summary import RevisionOutcomeSet
+        if 'pytestLog' not in cmd.logs:
+            return
+        pytestLog = cmd.logs['pytestLog']
+        outcome = RevisionOutcomeSet(None)
+        # Parse the log the same way the summary page does (see
+        # summary._load_outcome_set), so this cached summary can never disagree
+        # with it: junitxml results go through populate_xml, the old resultlog
+        # format through populate.
+        if pytestLog.getText().startswith("<?xml "):
+            outcome.populate_xml(pytestLog)
+        else:
+            outcome.populate(pytestLog)
+        summary = outcome.get_summary()
+        build_status = self.build.build_status
+        builder = build_status.builder
+        properties = build_status.getProperties()
+        if not hasattr(builder, 'summary_by_branch_and_revision'):
+            builder.summary_by_branch_and_revision = {}
+        try:
+            rev = properties['got_revision']
+        except KeyError:
+            # without a revision there is nothing to key the result on
+            return
+        # A build may be triggered without a 'branch' property (nightly/forced
+        # scheduler).  Don't drop the result in that case: a missing branch is
+        # the default branch, which map_branch_name maps to 'main' -- the same
+        # branch the nightly download page looks results up by.
+        if properties.has_key('branch'):
+            branch = map_branch_name(properties['branch'])
+        else:
+            branch = map_branch_name(None)
+        if branch.endswith('/'):
+            branch = branch[:-1]
+        d = builder.summary_by_branch_and_revision
+        key = (branch, rev)
+        if key in d:
+            summary += d[key]
+        d[key] = summary
+        builder.saveYourself()
 
 class SuccessAlways(ShellCmd):
     def evaluateCommand(self, cmd):
