@@ -51,6 +51,19 @@ class ShellCmd(shell.ShellCommand):
         return shell.ShellCommand.getText(self, cmd, results)
 
 
+class UploadCmd(ShellCmd):
+    # Upload steps carry SPEED_UPLOAD_PASSWORD in their environment, so they
+    # pass logEnviron=False to keep the env out of the log.  That also hides
+    # the command, and the waterfall only shows the static description, so
+    # echo the rendered command into stdio as a header.
+    def startCommand(self, cmd, errorMessages=None):
+        command = cmd.command
+        if not isinstance(command, basestring):
+            command = ' '.join(str(c) for c in command)
+        errorMessages = list(errorMessages or []) + ['run command: %s\n' % command]
+        return ShellCmd.startCommand(self, cmd, errorMessages)
+
+
 class PyPyUpload(transfer.FileUpload):
     parms = transfer.FileUpload.parms + ['basename']
     haltOnFailure = False
@@ -1148,10 +1161,11 @@ class JITBenchmark(factory.BuildFactory):
             doStepIf=is_py3_target,
             workdir='.',
             timeout=7200))
-        self.addStep(ShellCmd(
+        self.addStep(UploadCmd(
             description='upload pyperformance results (jit)',
             command=get_pyperformance_upload_cmd,
             env=upload_env,
+            logEnviron=False,
             doStepIf=is_py3_target,
             workdir='.'))
         self.addStep(ShellCmd(
@@ -1164,10 +1178,11 @@ class JITBenchmark(factory.BuildFactory):
             doStepIf=is_py3_target,
             workdir='.',
             timeout=7200))
-        self.addStep(ShellCmd(
+        self.addStep(UploadCmd(
             description='upload pyperformance results (nojit)',
             command=get_pyperformance_nojit_upload_cmd,
             env=upload_env,
+            logEnviron=False,
             doStepIf=is_py3_target,
             workdir='.'))
 
@@ -1178,15 +1193,17 @@ class JITBenchmark(factory.BuildFactory):
             command=get_cmd,
             workdir='./benchmarks',
             timeout=3600))
-        self.addStep(ShellCmd(
+        self.addStep(UploadCmd(
             description='upload legacy results (jit-off)',
             command=get_upload_changed_cmd,
             env=upload_env,
+            logEnviron=False,
             workdir='.'))
-        self.addStep(ShellCmd(
+        self.addStep(UploadCmd(
             description='upload legacy results (jit-on)',
             command=get_upload_baseline_cmd,
             env=upload_env,
+            logEnviron=False,
             workdir='.'))
 
         # Archive the legacy result file on the master

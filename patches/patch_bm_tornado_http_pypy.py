@@ -48,12 +48,9 @@ ANCHOR = "from tornado.web import RequestHandler, Application"
 INJECT = ANCHOR + '''
 
 # --- PyPy compatibility patch (buildbot) ---------------------------------
-# tornado's BaseIOStream._consume resizes self._read_buffer (a bytearray)
-# with `del self._read_buffer[:loc]` right after slicing it through a
-# temporary memoryview.  On PyPy that memoryview is not freed by refcounting
-# in time, so the resize raises
-#   BufferError: Existing exports of data: object cannot be re-sized
-# Reinstall _consume so the view is released before the resize.
+# tornado's _consume slices self._read_buffer via an unnamed base memoryview
+# that lingers on PyPy, blocking the `del` resize (BufferError). Name and
+# release both views before resizing.
 import tornado.iostream as _pypy_iostream
 
 
@@ -61,9 +58,11 @@ def _pypy_consume(self, loc):
     if loc == 0:
         return b""
     assert loc <= self._read_buffer_size
-    _view = memoryview(self._read_buffer)[:loc]
+    _mv = memoryview(self._read_buffer)
+    _view = _mv[:loc]
     _b = _view.tobytes()
     _view.release()
+    _mv.release()
     self._read_buffer_size -= loc
     del self._read_buffer[:loc]
     return _b

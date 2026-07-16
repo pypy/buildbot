@@ -35,7 +35,7 @@ exec podman run \
     --hostname "$HOSTNAME" \
     --cpuset-cpus="$CPUS" \
     --user 1001:1001 \
-    --volume "$HOME/buildbot:/buildbot" \
+    --volume "/home/pypy-worker/buildbot:/buildbot" \
     --volume /tmp/buildworker:/tmp \
     --workdir /buildbot/slave \
     --env HGDEMANDIMPORT=disable \
