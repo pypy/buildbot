@@ -109,6 +109,12 @@ def parse_pyperf(data):
 
 def build_codespeed_record(name, value, std_dev, args,
                            source='legacy', suite_version=''):
+    # pyperformance shares many benchmark names with the legacy suite (nbody,
+    # float, ...). They upload under the same executable/environment/revision,
+    # so suffix the pyperf names to keep them in a separate codespeed series
+    # instead of overwriting the legacy results.
+    if source == 'pyperformance':
+        name = name + '.pyperf'
     record = {
         'commitid':     args.revision,
         'branch':       args.branch,
