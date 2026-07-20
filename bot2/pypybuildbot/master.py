@@ -118,6 +118,7 @@ pypybuilds = load('pypybuildbot.builds')
 # ARM = load('pypybuildbot.arm_master')
 
 BenchmarkerLock = pypybuilds.BenchmarkerLock
+Benchmarker2Lock = pypybuilds.Benchmarker2Lock
 WinSlaveLock = pypybuilds.WinSlaveLock
 #SpeedOldLock = pypybuilds.SpeedOldLock
 Bencher4Lock = pypybuilds.Bencher4Lock
@@ -547,18 +548,20 @@ BuildmasterConfig = {
 
     'builders': [
                   {"name": LINUX32OWN,
-                   "slavenames": ["salsa_32", "benchmarker32"],
+                   "slavenames": ["salsa_32", "benchmarker32", "benchmarker2-32"],
                    "builddir": LINUX32OWN,
                    "factory": pypyOwnTestFactory,
                    "category": 'linux32',
-                   "locks": [BenchmarkerLock.access('counting')],
+                   "locks": [BenchmarkerLock.access('counting'),
+                             Benchmarker2Lock.access('counting')],
                   },
                   {"name": LINUX32RPYTHON,
-                   "slavenames": ["salsa_32", "benchmarker32"],
+                   "slavenames": ["salsa_32", "benchmarker32", "benchmarker2-32"],
                    "builddir": LINUX32RPYTHON,
                    "factory": pypyRPythonTestFactory,
                    "category": 'linux32',
-                   "locks": [BenchmarkerLock.access('counting')],
+                   "locks": [BenchmarkerLock.access('counting'),
+                             Benchmarker2Lock.access('counting')],
                   },
                   {"name": LINUX64OWN,
                    #"slavenames": ["bencher4", "speed-old"],
@@ -652,11 +655,12 @@ BuildmasterConfig = {
                   # },
                   {"name" : JITLINUX32,
                    #"slavenames": ["allegro32"],
-                   "slavenames": ["bencher4_32", "salsa_32", "benchmarker32"],
+                   "slavenames": ["bencher4_32", "salsa_32", "benchmarker32", "benchmarker2-32"],
                    'builddir' : JITLINUX32,
                    'factory' : pypyJITTranslatedTestFactory,
                    'category' : 'linux32',
-                   "locks": [BenchmarkerLock.access('counting')],
+                   "locks": [BenchmarkerLock.access('counting'),
+                             Benchmarker2Lock.access('counting')],
                    },
                   {'name': JITLINUX64,
                    #'slavenames': ["bencher4", "speed-old"],

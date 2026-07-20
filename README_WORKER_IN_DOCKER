@@ -1,0 +1,68 @@
+Running a PyPy buildbot worker inside a container
+=================================================
+
+This is a fourth way to run a worker (see `README_BUILDSLAVE` for the others):
+inside a prebuilt podman/docker image, using the same image as `start-slave.sh`
+but without the benchmarking-specific bits (CPU pinning, fixed hostname).
+
+The image ships the C build dependencies and a pinned PyPy2.7. The worker
+itself runs in a virtualenv created on first start; `requirements.txt` in this
+repo pins buildbot 0.8.8 and buildbot-slave.
+
+Setup on the host
+------------------
+
+Create the worker BASEDIR as described in `README_BUILDSLAVE` (the
+`buildslave create-slave BASEDIR MASTERHOST:PORT SLAVENAME PASSWORD` step). Lay
+it out so the container sees it and `requirements.txt`:
+
+    BASEDIR/
+        slave/          # the created worker config (buildbot.tac etc.)
+        requirements.txt
+
+The container runs as UID:GID 1001:1001, so make sure BASEDIR is writable by
+that user.
+
+Starting the worker
+-------------------
+
+    IMAGE="ghcr.io/pypy/buildworker_x86_64@sha256:c9f502a46d9438a11b2cac9a27d10d9449bdbcfde11cb46b47fd569aa7b476ba"
+    PYPY="/opt/pypy2.7-v7.3.22-linux64/bin"   # inside the container
+
+    mkdir -p /tmp/buildworker
+    chmod 1777 /tmp/buildworker
+
+    podman run --rm -it \
+        --name pypy-buildslave \
+        --user 1001:1001 \
+        --volume "$HOME/buildbot:/buildbot" \
+        --volume /tmp/buildworker:/tmp \
+        --workdir /buildbot/slave \
+        --env HGDEMANDIMPORT=disable \
+        "$IMAGE" \
+        /bin/bash -c "
+            set -euo pipefail
+            PATH=\$PATH:$PYPY
+
+            if [ -x /tmp/venv/bin/twistd ]; then
+                . /tmp/venv/bin/activate
+            else
+                pypy -m virtualenv /tmp/venv
+                . /tmp/venv/bin/activate
+                pip install --no-cache-dir -r /buildbot/requirements.txt zstandard
+            fi
+
+            # buildbot 0.8.8 has no --nodaemon, so run twistd directly
+            cd /buildbot/slave
+            exec /tmp/venv/bin/twistd --nodaemon --pidfile= --python=buildbot.tac
+        "
+
+The venv lives in the `/tmp/buildworker` volume, so it survives restarts and is
+only built the first time.
+
+Stopping the worker
+-------------------
+
+    podman stop pypy-buildslave
+
+`docker` can be substituted for `podman` throughout.
