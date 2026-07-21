@@ -2,12 +2,19 @@ Running a PyPy buildbot worker inside a container
 =================================================
 
 This is a fourth way to run a worker (see `README_BUILDSLAVE` for the others):
-inside a prebuilt podman/docker image, using the same image as `start-slave.sh`
-but without the benchmarking-specific bits (CPU pinning, fixed hostname).
+inside a prebuilt podman/docker image, using the images published by the
+pypy-ci repo (`ghcr.io/pypy/buildworker_{x86_64,i686,aarch64}`).
 
 The image ships the C build dependencies and a pinned PyPy2.7. The worker
 itself runs in a virtualenv created on first start; `requirements.txt` in this
 repo pins buildbot 0.8.8 and buildbot-slave.
+
+There are two run scripts:
+
+- `start-benchmarker2.sh` runs the benchmarker2 (x86_64) worker as root, as a service,
+  pinned to a cpuset.
+- `start-worker.sh` runs the other, rootless, command-line workers: `aarch64`,
+  `linux-x86-64`, and `benchmarker2-32` (i686).
 
 Setup on the host
 ------------------
@@ -16,53 +23,36 @@ Create the worker BASEDIR as described in `README_BUILDSLAVE` (the
 `buildslave create-slave BASEDIR MASTERHOST:PORT SLAVENAME PASSWORD` step). Lay
 it out so the container sees it and `requirements.txt`:
 
-    BASEDIR/
-        slave/          # the created worker config (buildbot.tac etc.)
+    $HOME/buildbot/
+        slave/          # the created worker config (*.tac etc.)
         requirements.txt
 
-The container runs as UID:GID 1001:1001, so make sure BASEDIR is writable by
-that user.
+The container maps your host UID straight through (`--userns=keep-id`), so
+BASEDIR must be owned by you.
 
-Starting the worker
--------------------
+Each worker uses `slave/<TAC>`: the isolated workers use `buildbot.tac`, and
+benchmarker2-32 uses `benchmarker2-32.tac` because it shares the slave
+directory with the benchmarker2 worker.
 
-    IMAGE="ghcr.io/pypy/buildworker_x86_64@sha256:c9f502a46d9438a11b2cac9a27d10d9449bdbcfde11cb46b47fd569aa7b476ba"
-    PYPY="/opt/pypy2.7-v7.3.22-linux64/bin"   # inside the container
+Starting a worker
+-----------------
 
-    mkdir -p /tmp/buildworker
-    chmod 1777 /tmp/buildworker
+    ./start-worker.sh aarch64
+    ./start-worker.sh linux-x86-64
+    ./start-worker.sh benchmarker2-32
 
-    podman run --rm -it \
-        --name pypy-buildslave \
-        --user 1001:1001 \
-        --volume "$HOME/buildbot:/buildbot" \
-        --volume /tmp/buildworker:/tmp \
-        --workdir /buildbot/slave \
-        --env HGDEMANDIMPORT=disable \
-        "$IMAGE" \
-        /bin/bash -c "
-            set -euo pipefail
-            PATH=\$PATH:$PYPY
+The container name and its `/tmp/<worker>` scratch dir are named after the
+worker, so the two workers sharing a slave directory never collide. The venv
+lives in that `/tmp/<worker>` volume, so it survives restarts and is only built
+the first time.
 
-            if [ -x /tmp/venv/bin/twistd ]; then
-                . /tmp/venv/bin/activate
-            else
-                pypy -m virtualenv /tmp/venv
-                . /tmp/venv/bin/activate
-                pip install --no-cache-dir -r /buildbot/requirements.txt zstandard
-            fi
+Per-worker specifics live in the `case` block in `start-worker.sh`: the image,
+the tac file, and extra podman flags. benchmarker2-32 is a 32-bit image
+(`--platform=linux/386`) and is colocated with the master (`--network=host`).
 
-            # buildbot 0.8.8 has no --nodaemon, so run twistd directly
-            cd /buildbot/slave
-            exec /tmp/venv/bin/twistd --nodaemon --pidfile= --python=buildbot.tac
-        "
+Stopping a worker
+-----------------
 
-The venv lives in the `/tmp/buildworker` volume, so it survives restarts and is
-only built the first time.
-
-Stopping the worker
--------------------
-
-    podman stop pypy-buildslave
+    podman stop <worker-name>
 
 `docker` can be substituted for `podman` throughout.

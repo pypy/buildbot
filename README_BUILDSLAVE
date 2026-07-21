@@ -4,11 +4,10 @@ How to setup a buildslave for PyPy
 There are three documented ways to run a PyPy buildslave:
 
 - "bare metal" on the host machine, described below
-- in a chroot, setting up the chroot is described in `README-CHROOT`
-- via docker on a centos7-based image, see docker/Dockerfile
+- via docker on a centos8-based image, see README_WORKER_IN_DOCKER
 
 In all cases the required setup is::
-- hg
+- git
 - "python" should run a python 2.7 that will run the test suites.
   This should be pypy2.7 on windows to prevent problems with mixing runtimes,
   (cpython is built with an ancient MSVC) but the buildbot itself requires
@@ -33,12 +32,12 @@ the xz package since it requires a modern SSL.
 On windows, you will need to add `externals/bin` to your PATH before running
 the buildslave.
 
-Then you will need to install the ``buildbot-slave`` package (pinning automat
+Then you will need to install the requirements (pinning automat
 for python2), which will install many other packages like twisted, so you may
 prefer to run the slave in a virtualenv::
 
     pip install pytest hypothesis==4.42 cffi mercurial==6.1 virtualenv pexpect vmprof
-    pip install buildbot-slave automat==20.2
+    pip install -r requirements.txt
 
 The next step is to create a buildslave configuration file. Based on version
 0.8.7 of buildbot you need to execute the following command.
@@ -48,13 +47,12 @@ buildslave create-slave  BASEDIR MASTERHOST:PORT SLAVENAME PASSWORD
 The MASTERHOST currently is ``buildbot.pypy.org``. The
 value for PORT is ``10407``.
 SLAVENAME and PASSWORD can be freely chosen. These values need to be added to
-the slaveinfo.py configuration file on the MASTERHOST, ask in the IRC channel
-(#pypy on irc.libera.chat) for the settings to be added. BASEDIR is a path to a
+the slaveinfo.py configuration file on the MASTERHOST. BASEDIR is a path to a
 local directory that will be created to contain all the files will be used by
 the buildslave. 
 
 Finally you will need to update the buildmaster configuration found in
-https://foss.heptapod.net/pypy/buildbot/src/default/bot2/pypybuildbot/master.py
+https://github.com/pypy/buildbot/src/default/bot2/pypybuildbot/master.py
 to associate the buildslave with one or more
 builders. Builders define what tasks should be executed on the buildslave. 
 Once the changes are commited the buildmaster on MASTERHOST needs to be updated

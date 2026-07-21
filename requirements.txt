@@ -16,3 +16,4 @@ python-dateutil==1.5
 sqlalchemy-migrate==0.7.2
 wsgiref==0.1.2
 zope.interface==4.0.5
+automat==20.2
