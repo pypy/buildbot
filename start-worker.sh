@@ -32,13 +32,14 @@ TMP="/tmp/$WORKER"
 mkdir -p "$TMP"; chmod 1777 "$TMP"
 podman rm -f "$WORKER" 2>/dev/null || true
 
-exec podman run --rm -d \
+exec podman run --rm -dt \
     --name "$WORKER" \
     --userns=keep-id \
     --volume "$HOME/buildbot:/buildbot" \
     --volume "$TMP:/tmp" \
     --workdir /buildbot/slave \
     --env HGDEMANDIMPORT=disable \
+    --env TERM=xterm \
     --env PYPY_MAKE_PORTABLE=1 \
     "${EXTRA[@]}" \
     "$IMAGE" \
