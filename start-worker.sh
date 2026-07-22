@@ -32,7 +32,7 @@ TMP="/tmp/$WORKER"
 mkdir -p "$TMP"; chmod 1777 "$TMP"
 podman rm -f "$WORKER" 2>/dev/null || true
 
-exec podman run --rm -dt \
+exec podman run --rm -d \
     --name "$WORKER" \
     --userns=keep-id \
     --volume "$HOME/buildbot:/buildbot" \
