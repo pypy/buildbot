@@ -9,6 +9,7 @@ argparse==1.2.1
 buildbot==0.8.8
 buildbot-slave==0.8.6p1
 decorator==3.4.0
+hypothesis
 mock==1.0.1
 py==1.4.18
 pytest==2.2.4
