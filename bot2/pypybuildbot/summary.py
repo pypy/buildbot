@@ -129,7 +129,11 @@ class RevisionOutcomeSet(object):
 
     def populate_xml(self, log):
         import xml.etree.ElementTree as ET
-        tree = ET.fromstring(log.getText())
+        try:
+            tree = ET.fromstring(log.getText())
+        except ET.ParseError, e:
+            self.populate_one("<xml log>:", "E", "could not parse pytest xml log: %s" % (e,))
+            return
         if tree.tag != "testsuite":
             # Could be a "testsuites" node around the "testsuite"
             tree = tree.find("testsuite")
