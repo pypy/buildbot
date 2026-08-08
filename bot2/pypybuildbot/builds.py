@@ -495,13 +495,24 @@ def get_extension(platform):
         return ".tar.bz2"
 
 def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyjit):
-    nDays = '3' #str, not int
+    nDays = '2' #str, not int
+    # translation itself does not set TMPDIR, so its usession-* leftovers
+    # land directly in the system tmp dir instead of under tmp_dir + pytest
     if platform in ("win32", "win64"):
-        command = ['FORFILES', '/P', Interpolate(factory.tmp_dir + factory.pytest),
-                   '/D', '-' + nDays, '/c', "cmd /c rmdir /q /s @path"]
+        command = ['cmd', '/c',
+            Interpolate(
+                "FORFILES /P " + factory.tmp_dir + factory.pytest +
+                " /D -" + nDays + " /c \"cmd /c rmdir /q /s @path\" & " +
+                "FORFILES /P " + factory.tmp_dir +
+                " /M usession* /D -" + nDays +
+                " /c \"cmd /c rmdir /q /s @path\"")]
     else:
-        command = ['find', Interpolate(factory.tmp_dir + factory.pytest), '-mtime',
-                   '+' + nDays, '-exec', 'rm', '-r', '{}', ';']
+        command = ['sh', '-c',
+            Interpolate(
+                "find " + factory.tmp_dir + factory.pytest +
+                " -mtime +" + nDays + " -delete ; " +
+                "find " + factory.tmp_dir + "usession* " +
+                "-mtime +" + nDays + " -delete")]
     factory.addStep(SuccessAlways(
         description="cleanout old test files",
         command = command,
