@@ -429,11 +429,25 @@ def setup_steps(platform, factory, workdir=None,
     # If target_tmpdir is empty, crash.
     factory.tmp_dir = '%(prop:target_tmpdir:-crazy/name/so/mkdir/fails/)s'
     factory.pytest = "pytest"
+    mkdir_pyscript = ("import os;  os.mkdir(r'" + \
+                factory.tmp_dir + factory.pytest + "') if not os.path.exists(r'" + \
+                factory.tmp_dir + factory.pytest + "') else True")
+    if platform in ('win32', 'win64'):
+        # Stray pypy*.exe processes left running from a previous test run
+        # keep .exe/.dll files locked, which makes the later
+        # "git clean -f -d -x" step fail with "Invalid argument".  Kill
+        # them here.  taskkill exits non-zero when nothing matches (the
+        # common case), so force success with "exit /b 0".
+        mkdir_command = Interpolate(
+            'taskkill /F /IM pypy*.exe /T & exit /b 0 & python -c "' +
+            mkdir_pyscript + '"')
+        mkdir_description = "mkdir pytest and kill stray pypy.exe"
+    else:
+        mkdir_command = ['python', '-c', Interpolate(mkdir_pyscript)]
+        mkdir_description = "mkdir for tests"
     factory.addStep(ShellCmd(
-        description="mkdir for tests",
-        command=['python', '-c', Interpolate("import os;  os.mkdir(r'" + \
-                    factory.tmp_dir + factory.pytest + "') if not os.path.exists(r'" + \
-                    factory.tmp_dir + factory.pytest + "') else True")],
+        description=mkdir_description,
+        command=mkdir_command,
         haltOnFailure=True,
         ))
 
