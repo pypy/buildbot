@@ -509,7 +509,7 @@ def get_extension(platform):
         return ".tar.bz2"
 
 def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyjit):
-    nDays = '2' #str, not int
+    nDays = '1' #str, not int
     # translation itself does not set TMPDIR, so its usession-* leftovers
     # land directly in the system tmp dir instead of under tmp_dir + pytest
     if platform in ("win32", "win64"):
@@ -523,10 +523,12 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
     else:
         command = ['sh', '-c',
             Interpolate(
+                "df -h /tmp; " +
                 "find " + factory.tmp_dir + factory.pytest +
-                " -mtime +" + nDays + " -delete ; " +
+                " -mtime +" + nDays + " -print -delete ; " +
                 "find " + factory.tmp_dir + "usession* " +
-                "-mtime +" + nDays + " -delete")]
+                "-mtime +" + nDays + " -print -delete ; " +
+                "df -h /tmp")]
     factory.addStep(SuccessAlways(
         description="cleanout old test files",
         command = command,
