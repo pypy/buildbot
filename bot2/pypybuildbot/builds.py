@@ -523,7 +523,7 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
     else:
         command = ['sh', '-c',
             Interpolate(
-                "df -h /tmp; " +
+                "du -sh /tmp/*; " +
                 "find " + factory.tmp_dir + factory.pytest +
                 " -mtime +" + nDays + " -print -delete ; " +
                 "find " + factory.tmp_dir + "usession* " +
