@@ -439,7 +439,7 @@ def setup_steps(platform, factory, workdir=None,
         # them here.  taskkill exits non-zero when nothing matches (the
         # common case), so force success with "exit /b 0".
         mkdir_command = Interpolate(
-            'taskkill /F /IM pypy*.exe /T & exit /b 0 & python -c "' +
+            'taskkill /F /IM pypy3* /T & exit /b 0 & python -c "' +
             mkdir_pyscript + '"')
         mkdir_description = "mkdir pytest and kill stray pypy.exe"
     else:
