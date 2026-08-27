@@ -25,7 +25,7 @@ case "$WORKER" in
     TAC="benchmarker2-32.tac"
     PYPY="/opt/pypy2.7-v7.3.22-linux32/bin"
     EXTRA=(--platform=linux/386 --network=host) ;;
-  *) echo "unknown worker: $WORKER" >&2; exit 1 ;;
+  *) echo "unknown worker: $WORKER (expected aarch64, linux-x86-64, or benchmarker2-32)" >&2; exit 1 ;;
 esac
 
 SLAVE_DIR="$HOME/buildbot/slave"
