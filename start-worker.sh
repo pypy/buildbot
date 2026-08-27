@@ -32,6 +32,16 @@ SLAVE_DIR="$HOME/buildbot/slave"
 [[ -f "$SLAVE_DIR/$TAC" ]] || { echo "no $SLAVE_DIR/$TAC" >&2; exit 1; }
 [[ -f "$HOME/buildbot/requirements.txt" ]] || { echo "no requirements.txt" >&2; exit 1; }
 
+# Record when this worker was (re)started, shown on the worker's status page.
+HOST_INFO="$SLAVE_DIR/info/host"
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p "$(dirname "$HOST_INFO")"
+if [[ -f "$HOST_INFO" ]] && grep -q '^last-started:' "$HOST_INFO"; then
+    sed -i "s/^last-started:.*/last-started: $TIMESTAMP/" "$HOST_INFO"
+else
+    echo "last-started: $TIMESTAMP" >> "$HOST_INFO"
+fi
+
 TMP="/tmp/$WORKER"
 mkdir -p "$TMP"; chmod 1777 "$TMP"
 podman rm -f "$WORKER" 2>/dev/null || true

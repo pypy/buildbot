@@ -12,6 +12,16 @@
 # worker -> unpause (resume normal scheduling).
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: $(basename "$0") [worker-name] [builder-name]"
+    echo
+    echo "  worker-name   buildbot slave/worker name known to the master, used in the"
+    echo "                buildslaves status/pause URLs (default: bencher4)"
+    echo "  builder-name  arg to start-worker.sh, picks the podman image/config;"
+    echo "                NOT the same name as worker-name (default: linux-x86-64)"
+    exit 0
+fi
+
 # WORKER is the buildbot slave/worker name known to the master (used in
 # the buildslaves status/pause URLs). BUILDER is the start-worker.sh arg,
 # which picks the podman image/config - they are NOT the same name.
