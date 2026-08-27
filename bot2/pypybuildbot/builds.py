@@ -27,7 +27,7 @@ import json
 BenchmarkerLock = locks.MasterLock('benchmarker', maxCount=3)
 Benchmarker2Lock = locks.MasterLock('benchmarker2', maxCount=3)
 SpeedPythonCPU = locks.MasterLock('speed_python_cpu', maxCount=24)
-WinSlaveLock = locks.SlaveLock('win_cpu', maxCount=2)
+WinSlaveLock = locks.SlaveLock('win_cpu', maxCount=1)
 # speed-old has 24 cores, but memory for ~2 translations
 #SpeedOldLock = locks.MasterLock('speed_old_lock', maxCount=2)
 # bencher4 has 8 cores, 32 GB RAM
