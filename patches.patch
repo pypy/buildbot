@@ -13,6 +13,53 @@ Handle unicode encode errors in changesets
 +                            except:
 +                                unilist.append("*** bad unicode ***")
                          log_lines.extend(unilist)
- 
+
              bc = {}
 
+
+Close private read-only log file handles explicitly instead of relying on
+GC. Under PyPy (non-refcounting GC) that close can be delayed long enough
+for the /summary page (which reads pytestLog for every recent build across
+every builder) to leak enough file descriptors under load to hit EMFILE
+and crash in-flight build bookkeeping (e.g. "unable to save build ...").
+
+--- site-packages/buildbot/status/logfile.py
++++ site-packages/buildbot/status/logfile.py
+@@ -337,6 +337,10 @@
+         # yield() calls.
+
+         f = self.getFile()
++        # getFile() returns self.openfile (which must stay open) while the
++        # log is still being written; once finished it always hands back a
++        # fresh private handle that we own and must close ourselves.
++        owns_file = (f is not self.openfile)
+         if not self.finished:
+             offset = 0
+             f.seek(0, 2)
+@@ -353,10 +357,10 @@
+
+         # freeze the state of the LogFile by passing a lot of parameters into
+         # a generator
+-        return self._generateChunks(f, offset, remaining, leftover,
++        return self._generateChunks(f, owns_file, offset, remaining, leftover,
+                                     channels, onlyText)
+
+-    def _generateChunks(self, f, offset, remaining, leftover,
++    def _generateChunks(self, f, owns_file, offset, remaining, leftover,
+                         channels, onlyText):
+         chunks = []
+         p = LogFileScanner(chunks.append, channels)
+@@ -383,6 +387,13 @@
+             else:
+                 data = f.read(self.BUFFERSIZE)
+             offset = f.tell()
++        if owns_file:
++            # Close explicitly instead of relying on GC to finalize the file
++            # object: under PyPy (non-refcounting GC) that close can be
++            # delayed long enough for many concurrent/rapid log reads (e.g.
++            # the /summary page scanning many builds) to exhaust the
++            # process's file descriptor limit.
++            f.close()
+         del f
+
+         if leftover:

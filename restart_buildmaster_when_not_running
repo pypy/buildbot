@@ -1,10 +1,79 @@
 #!/bin/bash
 
+PYPY_HOME=/home/pypy-worker/pypy2.7-v7.3.22-linux64
+BUILDBOT_BIN="$PYPY_HOME/bin/buildbot"
+SITE_PACKAGES="$PYPY_HOME/site-packages"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCHES_OK_FILE="$SCRIPT_DIR/master/patches_ok.txt"
+
+# Verification uses a marker string unique to the *patched* version of each
+# file, rather than `patch --dry-run`: the installed files don't always
+# match the patch's line-number context exactly (buildbot version drift),
+# which makes dry-run apply/reverse an unreliable yes/no signal. If a patch
+# changes what it patches, update its marker here to match.
+check_one() {
+    local desc="$1" fullpath="$2" marker="$3" apply_cmd="$4"
+
+    if [ ! -f "$fullpath" ]; then
+        echo "*** MISSING FILE: $fullpath does not exist, cannot check $desc"
+        FAILED=1
+        return
+    fi
+
+    if ! grep -qF -- "$marker" "$fullpath"; then
+        echo "*** NOT APPLIED: $desc"
+        echo "    Apply with: $apply_cmd"
+        FAILED=1
+    fi
+}
+
+check_patches() {
+    if [ -f "$PATCHES_OK_FILE" ]; then
+        echo "*** $PATCHES_OK_FILE exists, skipping patch check."
+        return 0
+    fi
+
+    echo "*** Verifying buildbot patches are applied under $SITE_PACKAGES ..."
+    FAILED=0
+
+    check_one "patches.patch (feeds.py unicode fix)" \
+        "$SITE_PACKAGES/buildbot/status/web/feeds.py" \
+        "*** bad unicode ***" \
+        "(cd $PYPY_HOME && patch -p0 < $SCRIPT_DIR/patches.patch)"
+
+    check_one "patches.patch (logfile.py fd-leak fix)" \
+        "$SITE_PACKAGES/buildbot/status/logfile.py" \
+        "owns_file" \
+        "(cd $PYPY_HOME && patch -p0 < $SCRIPT_DIR/patches.patch)"
+
+    check_one "patch-migrate.patch" \
+        "$SITE_PACKAGES/migrate/changeset/databases/sqlite.py" \
+        "legacy_alter_table" \
+        "(cd $SITE_PACKAGES && patch migrate/changeset/databases/sqlite.py < $SCRIPT_DIR/patch-migrate.patch)"
+
+    check_one "patch-buildbot.patch" \
+        "$SITE_PACKAGES/buildbot/db/migrate/versions/018_add_sourcestampset.py" \
+        "patch_base64" \
+        "(cd $SITE_PACKAGES && patch buildbot/db/migrate/versions/018_add_sourcestampset.py < $SCRIPT_DIR/patch-buildbot.patch)"
+
+    if [ "$FAILED" -ne 0 ]; then
+        echo "*** Refusing to restart the buildmaster until the patches above are applied."
+        echo "*** See the 'Patch the source' section of README for details."
+        exit 1
+    fi
+
+    echo "*** All patches verified applied."
+    mkdir -p "$(dirname "$PATCHES_OK_FILE")"
+    date > "$PATCHES_OK_FILE"
+}
+
+check_patches
+
 while ( wget -O - 'http://buildbot.pypy.org/waterfall' | grep --color=always -w "Activity building" ); do echo '*** There are running buildbots, will try again in 5 minutes. ***' && sleep 300; done
 
 echo "*** DONE, SHUT DOWN in 5 seconds... ***"
-sleep 5 && (cd master && /home/pypy-worker/pypy2.7-v7.3.22-linux64/bin/buildbot stop)
+sleep 5 && (cd master && "$BUILDBOT_BIN" stop)
 
 echo "*** BUILDBOT DOWN, bringing it back up in 30 seconds... ***"
-sleep 30 && (cd master && /home/pypy-worker/pypy2.7-v7.3.22-linux64/bin/buildbot start)
-
+sleep 30 && (cd master && "$BUILDBOT_BIN" start)

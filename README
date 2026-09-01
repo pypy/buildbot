@@ -16,24 +16,44 @@ Testing must use "pytest<4"
 Patch the source
 ================
 
-buildbot 0.8.8 is really old. There are some patches needed, see patches.patch.
+buildbot 0.8.8 is really old. There are some patches needed, see
+patches.patch. These patch the *installed* buildbot package (i.e. your
+venv's ``site-packages/buildbot``), not this repository's own source, so
+they are not applied automatically by ``git pull`` / ``hg pull`` and must be
+(re-)applied by hand every time the venv is created or rebuilt::
+
+    $ cd <path-to-venv>/lib/python2.7/site-packages/buildbot
+    $ patch -p0 < <path-to-this-checkout>/patches.patch
+
 If you are starting from a new db, you will need to also patch the installed
-migrate and buildbot packages for newer sqlite3: patch-migrate.patch,
-patch-buildbot.patch.
+migrate and buildbot packages for newer sqlite3, from the same directory:
+patch-migrate.patch, patch-buildbot.patch::
+
+    $ patch -p0 < <path-to-this-checkout>/patch-migrate.patch
+    $ patch -p0 < <path-to-this-checkout>/patch-buildbot.patch
+
+This only needs to be done once per venv -- not before every restart -- but
+it must be redone whenever the venv is recreated or its packages are
+reinstalled/upgraded, since that overwrites the patched files with pristine
+ones from PyPI.
 
 How to hack the PyPy buildbot
 ==============================
 
 If you want to run buildbot locally, you need to:
 
-  1. create a file ``master/slaveinfo.py`` which contains the password for the
+  1. create and populate a python2.7 venv with ``pip install -r
+     requirements.txt``, then apply the patches described in "Patch the
+     source" above to it.
+
+  2. create a file ``master/slaveinfo.py`` which contains the password for the
      local slave you will run::
 
          passwords = {"localhost": "an_arbitrary_password" }
 
-  2. ``cd master; make debug``
+  3. ``cd master; make debug``
 
-  3. ``cd slave; make debug``
+  4. ``cd slave; make debug``
 
 
 How to run the PyPy buildbot
@@ -43,6 +63,11 @@ If you want to run buildbot in production, you need to make sure that the
 function ``pypybuildbot.util.we_are_debugging`` returns ``False`` in your
 environment.  At the moment of writing, debugging is enabled everywhere but on
 cobra, which is not really where the buildbot runs.
+
+As above, make sure the venv exists and has the patches from "Patch the
+source" applied -- this is easy to forget after rebuilding a venv, and the
+buildmaster will start "successfully" without them, only misbehaving later
+under load.
 
 You still need to fill ``master/slaveinfo.py`` with the passwords of the
 various slaves you want to use.
@@ -72,6 +97,10 @@ $ buildbot start
 OR
 
 $ ./restart_buildmaster_when_not_running
+
+Note: a plain restart does not touch the venv, so patches already applied to
+it remain in place -- you only need to revisit "Patch the source" if the venv
+itself was recreated or its packages were reinstalled/upgraded.
 
 To run a buildslave
 ===================
