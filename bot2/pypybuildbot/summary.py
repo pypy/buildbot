@@ -201,6 +201,10 @@ class RevisionOutcomeSetCache(object):
         builderName, buildNumber = key
         builderStatus = status.getBuilder(builderName)
         build = builderStatus.getBuild(buildNumber)
+        if build is None:
+            # The build pickle has been pruned from disk (crawlers keep
+            # following stale /summary/longrepr links to long-gone builds).
+            return None
         run_url = status.getURLForThing(build)
 
         rev = build.getProperty("got_revision")
@@ -270,6 +274,11 @@ class RevisionOutcomeSetCache(object):
             dead_key = self._lru.pop(0)
             self._outcome_sets.pop(dead_key, None)
         outcome_set = self._load_outcome_set(status, key)
+        if outcome_set is None:
+            # no such build: don't cache the miss, the LRU bookkeeping
+            # above already recorded the key
+            self._lru.remove(key)
+            return None
         self._outcome_sets[key] = outcome_set
         return outcome_set
 
@@ -638,6 +647,9 @@ class LongRepr(HtmlResource):
         outcome_set = outcome_set_cache.get(self.getStatus(request),
                                             (builderName,
                                              buildNumber))
+        if outcome_set is None:
+            request.setResponseCode(404)
+            return "no such build"
 
         namekey = self.get_namekey(request)
 
@@ -848,6 +860,10 @@ class Summary(HtmlResource):
                 for builderName, buildNumber in runBuilds.items():
                     key = (builderName, buildNumber)
                     outcome_set = outcome_set_cache.get(status, key)
+                    if outcome_set is None:
+                        # pruned from disk between listing and loading
+                        del runBuilds[builderName]
+                        continue
                     runBuilds[builderName] = outcome_set
 
         return cat_branches

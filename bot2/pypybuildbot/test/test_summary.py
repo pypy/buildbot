@@ -421,6 +421,10 @@ class FakeRequest(object):
         status = status_builder.Status(master)
         self.args = args
         self.site = FakeSite(status)
+        self.code = 200
+
+    def setResponseCode(self, code):
+        self.code = code
 
 
 def _BuilderToStatus(status):
@@ -947,4 +951,25 @@ class TestSummary(object):
         req.args['testname'] = [key[1]]
         out_xml = longrepr.body(req)
         assert "E           InvalidMatch: got more ops than expected" in out_xml
+
+    def test_longrepr_no_such_build(self):
+        # crawlers follow stale /summary/longrepr links to builds whose
+        # pickles have long been pruned from disk: 404, not a traceback
+        builder = status_builder.BuilderStatus('builder0', None, self.master, '')
+        builder.nextBuildNumber = 0
+        req = FakeRequest([builder], {
+            'builder': ['builder0'],
+            'build': [1000],
+            'mod': ['a.b'],
+            'testname': ['test_one'],
+            })
+        longrepr = summary.LongRepr()
+        status = longrepr.getStatus(req)
+        assert summary.outcome_set_cache.get(status, ('builder0', 1000)) is None
+        # the miss must not be cached
+        assert ('builder0', 1000) not in summary.outcome_set_cache._outcome_sets
+        assert ('builder0', 1000) not in summary.outcome_set_cache._lru
+        out = longrepr.body(req)
+        assert out == "no such build"
+        assert req.code == 404
 
