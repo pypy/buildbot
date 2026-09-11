@@ -10,20 +10,20 @@ EXTRA=()
 # Get the sha256 hashes from https://github.com/pypy/pypy-ci/attestations
 case "$WORKER" in
   aarch64)
-    IMAGE="ghcr.io/pypy/buildworker_aarch64@sha256:85089da46253cf4a27da086fe9d00a7f8bb3551cf898ca71e0a6ddd1414c6abd"
-    PYPY="/opt/pypy2.7-v7.3.22-aarch64/bin"
+    IMAGE="ghcr.io/pypy/buildworker_aarch64@sha256:04d6f9b5b3a44940be6a2c9e6ffc2c4aa4841e5e2b1a88a5b9e605ceb50dc928"
+    PYPY="/opt/pypy2.7-v7.3.23-aarch64/bin"
     # /tmp on this worker is small; py.path's default keep-last-3 pruning
     # of usession-* translation dirs lets multi-GB dirs pile up, so keep
     # only the most recent one here.
     EXTRA=(--env PYPY_USESSION_KEEP=1) ;;
   linux-x86-64)
-    IMAGE="ghcr.io/pypy/buildworker_x86_64@sha256:c9f502a46d9438a11b2cac9a27d10d9449bdbcfde11cb46b47fd569aa7b476ba"
-    PYPY="/opt/pypy2.7-v7.3.22-linux64/bin" ;;
+    IMAGE="ghcr.io/pypy/buildworker_x86_64@sha256:4b502665cce7a324fe07eb22f755e4a0040affca8d04fb8085828fab99c24b0d"
+    PYPY="/opt/pypy2.7-v7.3.23-linux64/bin" ;;
   benchmarker2-32)
     # colocated with the master, hence --network=host
-    IMAGE="ghcr.io/pypy/buildworker_i686@sha256:20c7ca7528686a207ed9d5952a52c5104d14455da36abf1eea84ce816988f07f"
+    IMAGE="ghcr.io/pypy/buildworker_i686@sha256:b38c4b362539b5a1a4825c9d4415a4939dd9aece01e164cf44c7792535738451"
     TAC="benchmarker2-32.tac"
-    PYPY="/opt/pypy2.7-v7.3.22-linux32/bin"
+    PYPY="/opt/pypy2.7-v7.3.23-linux32/bin"
     EXTRA=(--platform=linux/386 --network=host) ;;
   *) echo "unknown worker: $WORKER (expected aarch64, linux-x86-64, or benchmarker2-32)" >&2; exit 1 ;;
 esac
