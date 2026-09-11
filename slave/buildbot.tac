@@ -54,3 +54,16 @@ s = BuildSlave(buildmaster_host, port, slavename, passwd, basedir,
                keepalive, usepty, umask=umask, maxdelay=maxdelay)
 s.setServiceParent(application)
 
+# The worker runs under PyPy, whose GC is not refcounting. Every build step
+# hands us a twisted RemoteReference to the master-side command object, and
+# the master only forgets its side once our RemoteReference.__del__ sends a
+# "decref" -- which under PyPy happens at the next *major* collection. A
+# worker that mostly relays short-lived log chunks can go for days without
+# one, so the references pile up on the master until it hits
+# twisted.spread.pb.MAX_BROKER_REFS (1024): steps then fail with "Maximum PB
+# reference count exceeded" and the 4th failure drops the connection.
+# Collect explicitly so the decrefs go out promptly. Harmless on CPython.
+import gc
+from twisted.application.internet import TimerService
+TimerService(600, gc.collect).setServiceParent(application)
+
