@@ -30,7 +30,7 @@ chmod 1777 /tmp/buildworker
 
 # Run the slave
 exec podman run \
-    --rm -it\
+    --rm -it --init\
     --name "$CONTAINER_NAME" \
     --hostname "$HOSTNAME" \
     --cpuset-cpus="$CPUS" \
