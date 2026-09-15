@@ -189,16 +189,6 @@ pypyJITTranslatedTestFactory64 = pypybuilds.Translated(
     trigger='NUMPY64_scheduler',
     )
 
-pypyJITTranslatedTestFactoryOSX = pypybuilds.Translated(
-    platform='osx',
-    translationArgs=jit_translation_args + ['--make-jobs=1'],
-    targetArgs=[],
-    lib_python=True,
-    pypyjit=True,
-    app_tests=True,
-    interpreter='python',
-    )
-
 pypyJITTranslatedTestFactoryMACOS_X86_64 = pypybuilds.Translated(
     platform='macos_x86_64',
     translationArgs=jit_translation_args,

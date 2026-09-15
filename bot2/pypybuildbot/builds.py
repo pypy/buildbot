@@ -576,7 +576,7 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
         xdist_n = Property('xdist_n', default='')
         # If we already have a bin directory, virtualenv will expect to find
         # the executables there (on linux). So copy them over.
-        if platform.startswith('linux') or platform in ('aarch64', 's390x'):
+        if platform.startswith('linux') or platform.startswith('macos') or platform in ('aarch64', 's390x'):
             factory.addStep(ShellCmd(
                     description="copy executable to bin",
                     # Need to use list for Property in command
