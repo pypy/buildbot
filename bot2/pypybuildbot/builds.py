@@ -583,9 +583,9 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
                     command=['cp', target, 'bin/pypy'],
                 ))
             factory.addStep(ShellCmd(
-                    description="copy *.so to bin",
+                    description="copy libpypy* to bin",
                     # Need to use string for '*' in command
-                    command='cp pypy/goal/*.so bin',
+                    command='cp pypy/goal/libpypy* bin',
                 ))
         factory.addStep(ShellCmd(
             description="Install recent virtualenv",
