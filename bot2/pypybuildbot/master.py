@@ -1,5 +1,6 @@
 
 import os
+import time
 from buildbot.scheduler import Nightly, Triggerable
 from buildbot.schedulers.forcesched import (ForceScheduler, ValidationError,
          CodebaseParameter, StringParameter, BaseParameter, UserNameParameter)
@@ -7,11 +8,12 @@ from buildbot.buildslave import BuildSlave
 from buildbot.buildslave.base import log
 from buildbot.status.html import WebStatus
 from buildbot.status.web import authz
+from buildbot.status.web.about import AboutBuildbot
 from buildbot.process.build import Build
 #from buildbot import manhole
 from pypybuildbot.pypylist import PyPyList, NumpyStatusList, ReleaseList
 from pypybuildbot.ircbot import IRC  # side effects
-from pypybuildbot.util import we_are_debugging, isRPython
+from pypybuildbot.util import we_are_debugging, isRPython, get_master_commit
 from buildbot.changes import filter
 from buildbot.changes.gitpoller import GitPoller
 from twisted.web.static import File
@@ -25,6 +27,26 @@ class CustomForceScheduler(ForceScheduler):
         if not owner:
             raise ValidationError("Please write your name in the corresponding field.")
         return ForceScheduler.force(self, owner, builder_name, **kwargs)
+
+
+class PyPyAboutBuildbot(AboutBuildbot):
+    '''
+    The stock about page, plus which commit of the buildbot2 checkout the
+    master is running.
+
+    Both values are captured when master.cfg is loaded, so the page shows what
+    the running master picked up -- which is exactly the point: it is not
+    necessarily what is in the checkout right now.
+    '''
+    def __init__(self, master_commit, config_loaded):
+        AboutBuildbot.__init__(self)
+        self.master_commit = master_commit
+        self.config_loaded = config_loaded
+
+    def content(self, request, cxt):
+        cxt['master_commit'] = self.master_commit
+        cxt['config_loaded'] = self.config_loaded
+        return AboutBuildbot.content(self, request, cxt)
 
 
 import re as _re
@@ -110,6 +132,10 @@ status.putChild('nightly', PyPyList(os.path.expanduser('~/nightly'),
 status.putChild('numpy-status', NumpyStatusList(os.path.expanduser('~/numpy_compat')))
 status.putChild('benchmark-results', File(os.path.expanduser('~/bench_results')))
 status.putChild('pypy', ReleaseList(os.path.expanduser('~/public_html/mirror')))
+# overrides the stock about page, see PyPyAboutBuildbot
+status.putChild('about', PyPyAboutBuildbot(
+    get_master_commit(),
+    time.strftime('%a %d %b %Y %H:%M:%S %Z')))
 
 
 pypybuilds = load('pypybuildbot.builds')

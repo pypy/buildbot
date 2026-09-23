@@ -50,6 +50,13 @@ Per-worker specifics live in the `case` block in `start-worker.sh`: the image,
 the tac file, and extra podman flags. benchmarker2-32 is a 32-bit image
 (`--platform=linux/386`) and is colocated with the master (`--network=host`).
 
+The container is started with `--init` so zombie processes get reaped. Podman
+does not ship its own init: it bind-mounts `catatonit` from the host, which on
+Ubuntu is only a Recommends of `podman` and may be missing. If startup fails
+with `lookup init binary: exec: "catatonit": executable file not found`, run
+`sudo apt install catatonit` on the host. Docker has a built-in init and needs
+nothing extra.
+
 Stopping a worker
 -----------------
 
