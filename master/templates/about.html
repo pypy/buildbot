@@ -6,35 +6,11 @@
 
 <div class="column">
 
-<h2>Buildmaster configuration</h2>
-<ul>
-{% set config_class=cycler('alt', '') %}
-
- <li class="{{ config_class.next() }}">buildbot2 commit:
-   {%- if master_commit %}
-     <b>{{ master_commit.commit }}</b> {{ master_commit.subject }}
-     ({{ master_commit.date }})
-     {%- if master_commit.dirty %}
-       <b>&mdash; plus uncommitted changes</b>
-     {%- endif -%}
-   {%- else %}
-     unknown (the buildmaster is not running from a git checkout)
-   {%- endif -%}
- </li>
- <li class="{{ config_class.next() }}">Configuration loaded: {{ config_loaded }}</li>
-
-</ul>
-
-<p>This is the revision of the
-<a href="https://github.com/pypy/buildbot">buildbot2</a> checkout that the
-running buildmaster read its configuration from. It only changes when the
-buildmaster is restarted or reconfig'd, so if it does not match the checkout
-on the server, the master has not picked up the newer commits yet.</p>
-
 <h2>Version Information</h2>
 <ul>
 {% set item_class=cycler('alt', '') %}
 
+ <li class="{{ item_class.next() }}"><a href="https://github.com/pypy/buildbot">pypy-buildbot</a> commit: {{ master_commit.commit }} ({{ master_commit.date }})
  <li class="{{ item_class.next() }}">Buildbot: {{ buildbot }}</li>
  <li class="{{ item_class.next() }}">Twisted: {{ twisted }}</li>
  <li class="{{ item_class.next() }}">Jinja: {{ jinja }}</li>
