@@ -1151,6 +1151,14 @@ class JITBenchmark(factory.BuildFactory):
             doStepIf=is_py3_target,
             workdir='.'))
 
+        self.addStep(ShellCmd(
+            # this step needs exclusive access to the CPU
+            locks=[lock.access('exclusive')],
+            description="run benchmarks on top of pypy-c",
+            command=get_cmd,
+            workdir='./benchmarks',
+            timeout=3600))
+
         # Transfer all PyPy-compatibility patch scripts from master to worker,
         # then apply them in a single step.
         _patches_dir = os.path.normpath(
@@ -1188,13 +1196,6 @@ class JITBenchmark(factory.BuildFactory):
             doStepIf=is_py3_target,
             workdir='.',
             timeout=7200))
-        self.addStep(UploadCmd(
-            description='upload pyperformance results (jit)',
-            command=get_pyperformance_upload_cmd,
-            env=upload_env,
-            logEnviron=False,
-            doStepIf=is_py3_target,
-            workdir='.'))
         self.addStep(ShellCmd(
             description='run pyperformance (nojit)',
             command=get_pyperformance_run_cmd('pyperformance_nojit_result.json',
@@ -1206,20 +1207,11 @@ class JITBenchmark(factory.BuildFactory):
             workdir='.',
             timeout=7200))
         self.addStep(UploadCmd(
-            description='upload pyperformance results (nojit)',
-            command=get_pyperformance_nojit_upload_cmd,
+            description='upload legacy results (jit-on)',
+            command=get_upload_baseline_cmd,
             env=upload_env,
             logEnviron=False,
-            doStepIf=is_py3_target,
             workdir='.'))
-
-        self.addStep(ShellCmd(
-            # this step needs exclusive access to the CPU
-            locks=[lock.access('exclusive')],
-            description="run benchmarks on top of pypy-c",
-            command=get_cmd,
-            workdir='./benchmarks',
-            timeout=3600))
         self.addStep(UploadCmd(
             description='upload legacy results (jit-off)',
             command=get_upload_changed_cmd,
@@ -1227,10 +1219,18 @@ class JITBenchmark(factory.BuildFactory):
             logEnviron=False,
             workdir='.'))
         self.addStep(UploadCmd(
-            description='upload legacy results (jit-on)',
-            command=get_upload_baseline_cmd,
+            description='upload pyperformance results (jit)',
+            command=get_pyperformance_upload_cmd,
             env=upload_env,
             logEnviron=False,
+            doStepIf=is_py3_target,
+            workdir='.'))
+        self.addStep(UploadCmd(
+            description='upload pyperformance results (nojit)',
+            command=get_pyperformance_nojit_upload_cmd,
+            env=upload_env,
+            logEnviron=False,
+            doStepIf=is_py3_target,
             workdir='.'))
 
         # Archive the legacy result file on the master
