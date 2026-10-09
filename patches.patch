@@ -63,3 +63,46 @@ and crash in-flight build bookkeeping (e.g. "unable to save build ...").
          del f
 
          if leftover:
+
+
+Close the private read-only handle in LogFileProducer.getChunks too. Same
+leak as the LogFile.getChunks fix above, on the live-log-streaming path: a
+generator abandoned mid-stream (viewer navigates away) never reaches its
+end, so the handle survives until PyPy's GC runs.
+
+--- site-packages/buildbot/status/logfile.py
++++ site-packages/buildbot/status/logfile.py
+@@ -86,6 +86,7 @@
+
+     def getChunks(self):
+         f = self.logfile.getFile()
++        owns_file = (f is not self.logfile.openfile)
+         offset = 0
+         chunks = []
+         p = LogFileScanner(chunks.append)
+@@ -93,13 +94,17 @@
+         data = f.read(self.BUFFERSIZE)
+         offset = f.tell()
+-        while data:
+-            p.dataReceived(data)
+-            while chunks:
+-                yield chunks.pop(0)
+-            f.seek(offset)
+-            data = f.read(self.BUFFERSIZE)
+-            offset = f.tell()
+-        del f
++        try:
++            while data:
++                p.dataReceived(data)
++                while chunks:
++                    yield chunks.pop(0)
++                f.seek(offset)
++                data = f.read(self.BUFFERSIZE)
++                offset = f.tell()
++        finally:
++            if owns_file:
++                f.close()
++        del f
+
+         # now subscribe them to receive new entries
+         self.subscribed = True

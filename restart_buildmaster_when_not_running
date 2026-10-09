@@ -2,7 +2,12 @@
 
 PYPY_HOME=/home/pypy-worker/pypy2.7-v7.3.22-linux64
 BUILDBOT_BIN="$PYPY_HOME/bin/buildbot"
-SITE_PACKAGES="$PYPY_HOME/site-packages"
+
+# The buildmaster imports from this virtualenv, not from $PYPY_HOME's own
+# site-packages, so that is where the patches have to be verified. Patch
+# paths are "site-packages/..." so -p0 runs with $VENV as its cwd.
+VENV="$HOME/venv2.7pypy"
+SITE_PACKAGES="$VENV/site-packages"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_OK_FILE="$SCRIPT_DIR/master/patches_ok.txt"
@@ -40,12 +45,12 @@ check_patches() {
     check_one "patches.patch (feeds.py unicode fix)" \
         "$SITE_PACKAGES/buildbot/status/web/feeds.py" \
         "*** bad unicode ***" \
-        "(cd $PYPY_HOME && patch -p0 < $SCRIPT_DIR/patches.patch)"
+        "(patch -d $VENV -p0 -F0 < $SCRIPT_DIR/patches.patch)"
 
     check_one "patches.patch (logfile.py fd-leak fix)" \
         "$SITE_PACKAGES/buildbot/status/logfile.py" \
         "owns_file" \
-        "(cd $PYPY_HOME && patch -p0 < $SCRIPT_DIR/patches.patch)"
+        "(patch -d $VENV -p0 -F0 < $SCRIPT_DIR/patches.patch)"
 
     check_one "patch-migrate.patch" \
         "$SITE_PACKAGES/migrate/changeset/databases/sqlite.py" \
