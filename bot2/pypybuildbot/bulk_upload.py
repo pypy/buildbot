@@ -17,7 +17,7 @@ Examples:
   ./bulk_upload.py result.json -e pypy-c-jit-64 -H benchmarker --baseline
 
   # pyperformance
-  ./bulk_upload.py pyperf.json -e pypy-c-64 -H benchmarker -r abc123 -B py3.11
+  ./bulk_upload.py pyperf.json -e pypy-c-64 -H benchmarker -r abc123 -B py3.12
 """
 import argparse
 import json
