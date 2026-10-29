@@ -1085,10 +1085,50 @@ class JITBenchmark(factory.BuildFactory):
             target = step.build.getProperty('target_path') or ''
             return os.path.basename(target).startswith('pypy3')
 
+        # pydantic-core, pulled in by the pyperformance fastapi benchmark, pins
+        # pyo3 ^0.29 and publishes no pp312 wheel.  pyo3 only gained the
+        # not(PyPy) gates needed to compile for PyPy 3.12 in 0.30, so build the
+        # wheel here with the pyo3 pin bumped and offer it to the benchmark venv
+        # through PIP_FIND_LINKS.
+        wheelhouse = './wheelhouse'
+        pydantic_core_version = '2.50.1'   # pinned by pydantic 2.14.x
+        pyo3_version = '0.30'
+
+        build_pydantic_core = """
+            set -e
+            mkdir -p %(wheelhouse)s
+            if ls %(wheelhouse)s/pydantic_core-%(version)s-pp312-*.whl \
+                    >/dev/null 2>&1; then
+                exit 0
+            fi
+            tmp=$(mktemp -d)
+            trap "rm -rf $tmp" EXIT
+            %(target)s -m venv $tmp/venv
+            $tmp/venv/bin/pip install --no-cache-dir maturin
+            $tmp/venv/bin/pip download --no-deps --no-binary :all: \
+                --dest $tmp pydantic-core==%(version)s
+            tar xzf $tmp/pydantic_core-%(version)s.tar.gz -C $tmp
+            src=$tmp/pydantic_core-%(version)s
+            sed -i -E 's/^(pyo3(-build-config)? = \\{ version = )"[^"]+"/\\1"%(pyo3)s"/' \
+                $src/Cargo.toml
+            rm -f $src/Cargo.lock
+            $tmp/venv/bin/maturin build --release --compatibility off \
+                -m $src/Cargo.toml -i $tmp/venv/bin/python -o %(wheelhouse)s
+        """
+
         @renderer
         def get_pyperformance_venv_cmd(props):
             target = props.getProperty('target_path')
-            return [target, '-m', 'venv', 'pyperformance_venv']
+            # a failed wheel build must not fail venv creation: the benchmark
+            # venv step reports the real error
+            return ['bash', '-c',
+                    '%s -m venv pyperformance_venv\n'
+                    '( %s ) || echo "WARNING: pydantic-core wheel build failed"\n'
+                    % (target, build_pydantic_core % {
+                        'target': target,
+                        'wheelhouse': wheelhouse,
+                        'version': pydantic_core_version,
+                        'pyo3': pyo3_version})]
 
         @renderer
         def get_pyperformance_install_cmd(props):
@@ -1148,6 +1188,7 @@ class JITBenchmark(factory.BuildFactory):
         self.addStep(ShellCmd(
             description='create pyperformance benchmark venv',
             command=get_pyperformance_bench_venv_cmd,
+            env={'PIP_FIND_LINKS': wheelhouse},
             doStepIf=is_py3_target,
             workdir='.'))
 
