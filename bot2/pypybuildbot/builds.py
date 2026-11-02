@@ -1203,7 +1203,8 @@ class JITBenchmark(factory.BuildFactory):
         # Transfer all PyPy-compatibility patch scripts from master to worker,
         # then apply them in a single step.
         _patches_dir = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), '..', '..', 'patches'))
+            os.path.join(os.path.dirname(__file__), '..', '..',
+                         'pyperformance-patches'))
         for _patch_file in sorted(glob.glob(
                 os.path.join(_patches_dir, 'patch_*_pypy.py'))):
             self.addStep(transfer.FileDownload(
