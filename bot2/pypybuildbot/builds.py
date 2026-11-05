@@ -599,12 +599,37 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
             command=prefix + [target, '-mvirtualenv', '--clear', venv_dir],
             workdir='venv',
             flunkOnFailure=True))
+        # pip's http cache entry is two files and the body write is silently
+        # dropped on failure, which leaves the entry inconsistent and wedges
+        # later builds.  Report the writes instead of guessing (issue 5713)
+        instrument_pip = platform in ("win32", "win64")
+        if instrument_pip:
+            factory.addStep(transfer.FileDownload(
+                mastersrc=os.path.join(os.path.dirname(__file__),
+                                       'pip_cache_debug.py'),
+                slavedest='pip_cache_debug.py',
+                workdir='venv'))
+            factory.addStep(ShellCmd(
+                description="instrument pip cache",
+                command=prefix + [virt_pypy, 'pip_cache_debug.py',
+                                  'instrument'],
+                workdir='venv',
+                haltOnFailure=False,
+                flunkOnFailure=False))
         factory.addStep(ShellCmd(
             description="Install extra tests requirements",
             command=prefix + [virt_pypy, '-m', 'pip', 'install',
                 '--no-warn-script-location',
                 '-r', '../build/extra_tests/requirements.txt'],
             workdir='venv'))
+        if instrument_pip:
+            factory.addStep(ShellCmd(
+                description="report pip cache",
+                command=prefix + [virt_pypy, 'pip_cache_debug.py', 'report'],
+                workdir='venv',
+                alwaysRun=True,
+                haltOnFailure=False,
+                flunkOnFailure=False))
         factory.addStep(PytestCmd(
             description="Run -D tests",
             command=prefix + [virt_pypy, '-m', 'pytest', '-D',
