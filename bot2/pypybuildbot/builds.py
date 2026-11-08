@@ -80,6 +80,7 @@ class PyPyUpload(transfer.FileUpload):
         masterdest = os.path.join(masterdest, branch)
         if not os.path.exists(masterdest):
             os.makedirs(masterdest)
+            os.chmod(masterdest, 0775)
         #
         assert '%(final_file_name)s' in self.basename
         symname = self.basename.replace('%(final_file_name)s', 'latest')
