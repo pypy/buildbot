@@ -8,6 +8,7 @@ from buildbot.process.properties import WithProperties, Interpolate, Property, r
 from buildbot import locks
 from pypybuildbot.util import symlink_force
 from buildbot.status.results import SKIPPED, SUCCESS
+import base64
 import glob
 import os
 import json
@@ -1232,33 +1233,59 @@ class JITBenchmark(factory.BuildFactory):
             workdir='./benchmarks',
             timeout=3600))
 
-        # Transfer all PyPy-compatibility patch scripts from master to worker,
-        # then apply them in a single step.
+        # Apply every PyPy-compatibility patch in a single step: the
+        # renderer reads the patch scripts from the master at build time and
+        # ships them inside the command, so the worker needs neither a
+        # FileDownload step per patch nor a copy of them on disk.
         _patches_dir = os.path.normpath(
             os.path.join(os.path.dirname(__file__), '..', '..',
                          'pyperformance-patches'))
-        for _patch_file in sorted(glob.glob(
-                os.path.join(_patches_dir, 'patch_*_pypy.py'))):
-            self.addStep(transfer.FileDownload(
-                mastersrc=_patch_file,
-                slavedest=os.path.basename(_patch_file),
-                doStepIf=is_py3_target,
-                workdir='.'))
+
+        apply_patches_script = """
+import base64, json, os, sys, traceback
+
+patches = json.loads(base64.b64decode("@PAYLOAD@").decode("utf-8"))
+print("cwd: " + os.getcwd())
+print("cwd contents: " + repr(sorted(os.listdir("."))))
+if os.path.isdir("venv"):
+    print("venv/ contents: " + repr(sorted(os.listdir("venv"))))
+else:
+    print("venv/ directory does not exist")
+print("applying patches: " + repr([name for name, src in patches]))
+failed = []
+for name, src in patches:
+    print("")
+    print("--- " + name)
+    sys.stdout.flush()
+    try:
+        exec(compile(src, name, "exec"),
+             {"__name__": "__main__", "__file__": name})
+    except SystemExit as e:
+        if e.code:
+            failed.append(name)
+    except Exception:
+        traceback.print_exc()
+        failed.append(name)
+    sys.stdout.flush()
+if failed:
+    sys.exit("FAILED: " + ", ".join(failed))
+"""
+
+        @renderer
+        def get_apply_patches_cmd(props):
+            patches = []
+            for path in sorted(glob.glob(
+                    os.path.join(_patches_dir, 'patch_*_pypy.py'))):
+                with open(path) as f:
+                    patches.append((os.path.basename(path), f.read()))
+            payload = base64.b64encode(
+                json.dumps(patches).encode('utf-8')).decode('ascii')
+            return ['python3', '-c',
+                    apply_patches_script.replace('@PAYLOAD@', payload)]
+
         self.addStep(ShellCmd(
             description='apply PyPy compatibility patches',
-            command=['python3', '-c',
-                     'import glob, os, subprocess, sys\n'
-                     'print("cwd:", os.getcwd())\n'
-                     'print("cwd contents:", sorted(os.listdir(".")))\n'
-                     'venv_dir = "venv"\n'
-                     'if os.path.isdir(venv_dir):\n'
-                     '    print("venv/ contents:", sorted(os.listdir(venv_dir)))\n'
-                     'else:\n'
-                     '    print("venv/ directory does not exist")\n'
-                     'scripts = sorted(glob.glob("patch_*_pypy.py"))\n'
-                     'print("Applying patches:", scripts)\n'
-                     'for f in scripts:\n'
-                     '    subprocess.check_call([sys.executable, f])\n'],
+            command=get_apply_patches_cmd,
             doStepIf=is_py3_target,
             haltOnFailure=True,
             workdir='.'))
