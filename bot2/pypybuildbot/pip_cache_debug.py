@@ -2,8 +2,13 @@
 
 'instrument' makes the venv's pip report a cache write error instead of
 dropping it, 'report' lists writes that never got renamed into place and
-entries whose body does not match the stored content-length.  Both modes
-always exit 0: this is diagnostics, it must never fail a build.
+entries whose body does not match the stored content-length, and 'repair'
+deletes those.  A mismatched entry is not self-healing: pip serves the short
+body against the stored content-length, and urllib3 2.x raises IncompleteRead
+on it in every later run (issue 5713).  All modes always exit 0: this is
+diagnostics, it must never fail a build.
+
+The optional second argument is the cache directory, for testing.
 """
 import os
 import sys
@@ -54,9 +59,67 @@ def stored_length(path):
     return None
 
 
-def report():
+def body_mismatch(path):
+    """Return (content-length, body size) if the entry at 'path' has a body
+    that does not match the stored content-length, else None
+    """
+    body = path + ".body"
+    if not os.path.exists(body):
+        return None
+    try:
+        want = stored_length(path)
+    except Exception as e:
+        print("UNREADABLE %s: %s" % (os.path.basename(path), e))
+        return None
+    if want is None:
+        return None
+    size = os.path.getsize(body)
+    if want != size:
+        return want, size
+    return None
+
+
+def remove(path):
+    try:
+        os.remove(path)
+        return True
+    except OSError as e:
+        print("could not remove %s: %s" % (path, e))
+        return False
+
+
+def repair(directory=None):
+    """Delete what a failed body write left behind, so that the next pip run
+    downloads the entry again instead of failing on it
+    """
+    directory = directory or cache_dir()
+    print("pip cache: %s" % directory)
+    entries = dropped = 0
+    for root, _dirs, files in os.walk(directory):
+        for name in sorted(files):
+            path = os.path.join(root, name)
+            if name.endswith(".tmp"):
+                if remove(path):
+                    dropped += 1
+                continue
+            if name.endswith(".body"):
+                continue
+            mismatch = body_mismatch(path)
+            if mismatch is None:
+                continue
+            want, size = mismatch
+            print("REPAIR %s: content-length=%d body=%d (%+d)"
+                  % (name, want, size, size - want))
+            remove(path + ".body")
+            if remove(path):
+                entries += 1
+    print("removed %d inconsistent entries, %d unfinished writes"
+          % (entries, dropped))
+
+
+def report(directory=None):
     import time
-    directory = cache_dir()
+    directory = directory or cache_dir()
     print("pip cache: %s" % directory)
     unfinished = mismatched = entries = 0
     for root, _dirs, files in os.walk(directory):
@@ -74,13 +137,9 @@ def report():
             if not os.path.exists(body):
                 continue
             entries += 1
-            try:
-                want = stored_length(path)
-            except Exception as e:
-                print("UNREADABLE %s: %s" % (name, e))
-                continue
-            size = os.path.getsize(body)
-            if want is not None and want != size:
+            mismatch = body_mismatch(path)
+            if mismatch is not None:
+                want, size = mismatch
                 mismatched += 1
                 print("MISMATCH %s\n    content-length=%d body=%d (%+d)"
                       % (name, want, size, size - want))
@@ -93,11 +152,14 @@ def report():
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "report"
+    directory = sys.argv[2] if len(sys.argv) > 2 else None
     try:
         if mode == "instrument":
             instrument()
+        elif mode == "repair":
+            repair(directory)
         else:
-            report()
+            report(directory)
     except Exception:
         import traceback
         traceback.print_exc()

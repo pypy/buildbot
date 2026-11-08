@@ -601,7 +601,8 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
             flunkOnFailure=True))
         # pip's http cache entry is two files and the body write is silently
         # dropped on failure, which leaves the entry inconsistent and wedges
-        # later builds.  Report the writes instead of guessing (issue 5713)
+        # every later build.  Drop those entries before installing, and report
+        # the failing writes instead of guessing (issue 5713)
         instrument_pip = platform in ("win32", "win64")
         if instrument_pip:
             factory.addStep(transfer.FileDownload(
@@ -613,6 +614,12 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
                 description="instrument pip cache",
                 command=prefix + [virt_pypy, 'pip_cache_debug.py',
                                   'instrument'],
+                workdir='venv',
+                haltOnFailure=False,
+                flunkOnFailure=False))
+            factory.addStep(ShellCmd(
+                description="repair pip cache",
+                command=prefix + [virt_pypy, 'pip_cache_debug.py', 'repair'],
                 workdir='venv',
                 haltOnFailure=False,
                 flunkOnFailure=False))
