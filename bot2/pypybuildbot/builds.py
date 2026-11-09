@@ -636,7 +636,6 @@ def add_translated_tests(factory, prefix, platform, app_tests, lib_python, pypyj
                 description="report pip cache",
                 command=prefix + [virt_pypy, 'pip_cache_debug.py', 'report'],
                 workdir='venv',
-                alwaysRun=True,
                 haltOnFailure=False,
                 flunkOnFailure=False))
         factory.addStep(PytestCmd(
