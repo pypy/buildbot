@@ -20,6 +20,7 @@ Examples:
   ./bulk_upload.py pyperf.json -e pypy-c-64 -H benchmarker -r abc123 -B py3.12
 """
 import argparse
+import collections
 import json
 import os
 import statistics
@@ -28,6 +29,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+SENTINEL_THRESHOLD = 1000000
 
 
 def detect_format(data):
@@ -109,12 +112,6 @@ def parse_pyperf(data):
 
 def build_codespeed_record(name, value, std_dev, args,
                            source='legacy', suite_version=''):
-    # pyperformance shares many benchmark names with the legacy suite (nbody,
-    # float, ...). They upload under the same executable/environment/revision,
-    # so suffix the pyperf names to keep them in a separate codespeed series
-    # instead of overwriting the legacy results.
-    if source == 'pyperformance':
-        name = name + '.pyperf'
     record = {
         'commitid':     args.revision,
         'branch':       args.branch,
@@ -130,6 +127,23 @@ def build_codespeed_record(name, value, std_dev, args,
     if suite_version:
         record['suite_version'] = suite_version
     return record
+
+
+def reject_if_garbage(records):
+    """Abort before upload if the parsed values look like placeholders."""
+    values = [r['result_value'] for r in records]
+
+    bad = [r for r in records if not 0 < r['result_value'] < SENTINEL_THRESHOLD]
+    if bad:
+        names = ', '.join(r['benchmark'] for r in bad[:5])
+        sys.exit("Aborting: %d value(s) out of range (0, %g), e.g. %s. "
+                 "Nothing uploaded." % (len(bad), SENTINEL_THRESHOLD, names))
+
+    value, count = collections.Counter(values).most_common(1)[0]
+    if count >= 3 and count >= 0.5 * len(values):
+        sys.exit("Aborting: %d/%d results share the identical value %r, which "
+                 "looks like a placeholder column (did you forget --baseline?). "
+                 "Nothing uploaded." % (count, len(values), value))
 
 
 def send_bulk(records, url, username=None, password=None):
@@ -224,6 +238,8 @@ def main():
     if not records:
         print("No results to upload.", file=sys.stderr)
         sys.exit(1)
+
+    reject_if_garbage(records)
 
     username = os.environ.get('SPEED_UPLOAD_USER')
     password = os.environ.get('SPEED_UPLOAD_PASSWORD')
