@@ -22,6 +22,6 @@ log:
 # manual editing of the automatically generated Makefile
 #
 debug:
-	twistd --no_save -n -b --logfile=- -y buildbot.tac
+	PYPYBUILDBOT_DEBUG=1 twistd --no_save -n -b --logfile=- -y buildbot.tac
 #
 # ---------------------------------------------------------------

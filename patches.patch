@@ -2,12 +2,11 @@ Handle unicode encode errors in changesets
 
 --- site-packages/buildbot/status/web/feeds.py
 +++ site-packages/buildbot/status/web/feeds.py
-@@ -209,7 +209,11 @@
-                             # Probably the log file has been removed
+@@ -210,7 +210,10 @@
                              logdata ='** log file not available **'
                          unilist = list()
--                        unilist.append(unicode(line,'utf-8'))
-+                        for line in logdata.split('\n')[-30:]:
+                         for line in logdata.split('\n')[-30:]:
+-                            unilist.append(unicode(line,'utf-8'))
 +                            try:
 +                                unilist.append(unicode(line,'utf-8'))
 +                            except:

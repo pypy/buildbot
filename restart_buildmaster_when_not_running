@@ -3,11 +3,17 @@
 PYPY_HOME=/home/pypy-worker/pypy2.7-v7.3.22-linux64
 BUILDBOT_BIN="$PYPY_HOME/bin/buildbot"
 
-# The buildmaster imports from this virtualenv, not from $PYPY_HOME's own
-# site-packages, so that is where the patches have to be verified. Patch
-# paths are "site-packages/..." so -p0 runs with $VENV as its cwd.
-VENV="$HOME/venv2.7pypy"
-SITE_PACKAGES="$VENV/site-packages"
+# One /summary render opens a log file per recent build of every builder, so
+# the stock soft limit of 1024 is not enough: accept() then fails with EMFILE
+# and the master stops answering, workers included. The hard limit is 524288
+ulimit -n 65536
+
+# The buildmaster is started with $PYPY_HOME/bin/buildbot, so it imports
+# from $PYPY_HOME's site-packages and that is the copy the patches have to
+# be in. Patch paths are "site-packages/..." so -p0 runs with $PYPY_HOME as
+# its cwd.
+PATCH_ROOT="$PYPY_HOME"
+SITE_PACKAGES="$PATCH_ROOT/site-packages"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_OK_FILE="$SCRIPT_DIR/master/patches_ok.txt"
@@ -45,12 +51,12 @@ check_patches() {
     check_one "patches.patch (feeds.py unicode fix)" \
         "$SITE_PACKAGES/buildbot/status/web/feeds.py" \
         "*** bad unicode ***" \
-        "(patch -d $VENV -p0 -F0 < $SCRIPT_DIR/patches.patch)"
+        "(patch -d $PATCH_ROOT -p0 -F0 < $SCRIPT_DIR/patches.patch)"
 
     check_one "patches.patch (logfile.py fd-leak fix)" \
         "$SITE_PACKAGES/buildbot/status/logfile.py" \
         "owns_file" \
-        "(patch -d $VENV -p0 -F0 < $SCRIPT_DIR/patches.patch)"
+        "(patch -d $PATCH_ROOT -p0 -F0 < $SCRIPT_DIR/patches.patch)"
 
     check_one "patch-migrate.patch" \
         "$SITE_PACKAGES/migrate/changeset/databases/sqlite.py" \

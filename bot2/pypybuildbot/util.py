@@ -1,10 +1,10 @@
 import os
-import socket
 import subprocess
 from twisted.python import log
 
 def we_are_debugging():
-    return True
+    # production is the default; master/Makefile's 'debug' target opts in
+    return os.environ.get('PYPYBUILDBOT_DEBUG', '0') != '0'
 
 def load(name):
     mod = __import__(name, {}, {}, ['__all__'])
