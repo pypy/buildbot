@@ -93,6 +93,88 @@ class BenchmarkForceScheduler(CustomForceScheduler):
                 "'git+https://github.com/python/pyperformance@<ref>'")
         CustomForceScheduler.force(self, owner, builderNames, **kwargs)
 
+
+# These three fields all end up in a shell command, so keep them to what a
+# git ref and a configure line can actually contain.
+_CPYTHON_REF_RE = _re.compile(r'^[A-Za-z0-9._/-]+$')
+_CPYTHON_CONFIGURE_RE = _re.compile(r'^[-A-Za-z0-9_=+,./ ]*$')
+
+
+class CPythonBenchmarkForceScheduler(CustomForceScheduler):
+    '''
+    Force scheduler for the CPython benchmark builder.
+
+    The branch field is both what gets checked out and the branch the results
+    are uploaded under, so the two cannot disagree.  Leave the revision empty
+    to benchmark the tip of the branch; a tag or sha is verified to be on the
+    branch before anything is built.  Benchmarking your own branch off 3.12
+    means putting that branch's name here, not 3.12.
+    '''
+    def __init__(self, name, builderNames,
+            cpython_branch=None,
+            cpython_revision=StringParameter(name="cpython_revision",
+                label="CPython tag or commit (empty = tip of the branch):",
+                default="", required=False, length=50),
+            cpython_configure_args=None,
+            benchmark_branch=StringParameter(name="benchmark_branch",
+                label="Legacy benchmark repo branch:",
+                default="default", length=20),
+            pyperformance_spec=StringParameter(name="pyperformance_spec",
+                label="pyperformance pip specifier:",
+                default="pyperformance", length=60),
+            **kwargs):
+        # built here rather than in the signature: pypybuilds is loaded
+        # further down this file, after the class body has been evaluated
+        if cpython_branch is None:
+            cpython_branch = StringParameter(name="cpython_branch",
+                label="CPython branch (checked out, and the codespeed branch):",
+                default="main", required=True, length=30)
+        if cpython_configure_args is None:
+            cpython_configure_args = StringParameter(
+                name="cpython_configure_args",
+                label="CPython configure flags (the build variant):",
+                default=pypybuilds.DEFAULT_CPYTHON_CONFIGURE_ARGS, length=80)
+        CustomForceScheduler.__init__(self, name, builderNames, **kwargs)
+        for param in (cpython_branch, cpython_revision,
+                      cpython_configure_args, benchmark_branch,
+                      pyperformance_spec):
+            self.all_fields.append(param)
+            self.forcedProperties.append(param)
+
+    def force(self, owner, builderNames=None, **kwargs):
+        def single(key, default=''):
+            value = kwargs.get(key, default)
+            if isinstance(value, list):
+                value = value[0] if value else default
+            return (value or '').strip()
+
+        branch = single('cpython_branch')
+        if not branch:
+            raise ValidationError(
+                "A CPython branch is required: it is both what gets checked "
+                "out and the branch the results are uploaded under.")
+        if not _CPYTHON_REF_RE.match(branch):
+            raise ValidationError("Not a valid branch name: %r" % branch)
+
+        revision = single('cpython_revision')
+        if revision and not _CPYTHON_REF_RE.match(revision):
+            raise ValidationError("Not a valid tag or commit: %r" % revision)
+
+        configure_args = single('cpython_configure_args')
+        if not _CPYTHON_CONFIGURE_RE.match(configure_args):
+            raise ValidationError(
+                "configure flags may only contain letters, digits and "
+                "-_=+,./ characters: %r" % configure_args)
+
+        spec = single('pyperformance_spec', 'pyperformance') or 'pyperformance'
+        if not _PYPERFORMANCE_SPEC_RE.match(spec):
+            raise ValidationError(
+                "pyperformance pip specifier must be 'pyperformance', "
+                "'pyperformance==<version>', or "
+                "'git+https://github.com/python/pyperformance@<ref>'")
+
+        CustomForceScheduler.force(self, owner, builderNames, **kwargs)
+
 # Forbid "stop build" without a reason that starts with "!"
 def _checkStopBuild(self, reason=""):
     if ": !" not in reason:
@@ -291,6 +373,11 @@ pypyJITBenchmark2Factory64 = pypybuilds.JITBenchmark(platform='linux64',
                                                            postfix='-64',
                                                            upload_credentials=upload_credentials)
 
+cpythonBenchmark2Factory64 = pypybuilds.CPythonBenchmark2(
+    platform='linux64',
+    host='benchmarker2',
+    upload_credentials=upload_credentials)
+
 pypyJITBenchmarkFactory64_speed = pypybuilds.JITBenchmarkSingleRun(
     platform='linux64',
     host='speed_python',
@@ -336,7 +423,7 @@ JITMACOSARM64 = "pypy-c-jit-macos-arm64"
 
 # JITONLYLINUXPPC64 = "jitonly-own-linux-ppc-64"
 JITBENCH64_2 = "jit-benchmark2-linux-x86-64"
-CPYTHON_64 = "cpython-2-benchmark-x86-64"
+CPYTHONBENCH64_2 = "cpython-benchmark2-linux-x86-64"
 #NUMPY_64 = "numpy-compatibility-linux-x86-64"
 #NUMPY_WIN = "numpy-compatibility-win-x86-32"
 
@@ -485,6 +572,10 @@ BuildmasterConfig = {
             builderNames=[
                         JITBENCH64_2,
                         JITBENCH64_NEW,
+                    ], properties=[]),
+        CPythonBenchmarkForceScheduler('Force CPython Benchmark',
+            builderNames=[
+                        CPYTHONBENCH64_2,
                     ], properties=[]),
         CustomForceScheduler('Force Build',
             builderNames=[
@@ -675,6 +766,13 @@ BuildmasterConfig = {
                    "slavenames": ["benchmarker2"],
                    "builddir": JITBENCH64_2,
                    "factory": pypyJITBenchmark2Factory64,
+                   "category": "benchmark-run",
+                   # the locks are acquired with fine grain inside the build
+                   },
+                  {"name": CPYTHONBENCH64_2,
+                   "slavenames": ["benchmarker2"],
+                   "builddir": CPYTHONBENCH64_2,
+                   "factory": cpythonBenchmark2Factory64,
                    "category": "benchmark-run",
                    # the locks are acquired with fine grain inside the build
                    },
