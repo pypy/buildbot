@@ -3,7 +3,8 @@ import os
 import time
 from buildbot.scheduler import Nightly, Triggerable
 from buildbot.schedulers.forcesched import (ForceScheduler, ValidationError,
-         CodebaseParameter, StringParameter, BaseParameter, UserNameParameter)
+         CodebaseParameter, StringParameter, BaseParameter, UserNameParameter,
+         FixedParameter)
 from buildbot.buildslave import BuildSlave
 from buildbot.buildslave.base import log
 from buildbot.status.html import WebStatus
@@ -15,8 +16,19 @@ from pypybuildbot.pypylist import PyPyList, NumpyStatusList, ReleaseList
 from pypybuildbot.ircbot import IRC  # side effects
 from pypybuildbot.util import we_are_debugging, isRPython, get_master_commit
 from buildbot.changes import filter
+from buildbot.revlinks import default_revlink_matcher
 from buildbot.changes.gitpoller import GitPoller
 from twisted.web.static import File
+
+def revlink(rev, repo):
+    """Link to the commit half of a 'sortable count:sha' got_revision.
+
+    CheckGotRevision prefixes the sha with a commit count so the summary and
+    download pages still sort chronologically after the move off hg; the forge
+    knows nothing about that half, so drop it before building the URL.
+    """
+    return default_revlink_matcher(rev.rsplit(':', 1)[-1], repo)
+
 
 # Forbid "force build" with empty user name
 class CustomForceScheduler(ForceScheduler):
@@ -98,17 +110,23 @@ class BenchmarkForceScheduler(CustomForceScheduler):
 # git ref and a configure line can actually contain.
 _CPYTHON_REF_RE = _re.compile(r'^[A-Za-z0-9._/-]+$')
 _CPYTHON_CONFIGURE_RE = _re.compile(r'^[-A-Za-z0-9_=+,./ ]*$')
+# a release tag, v3.13.10, which names the branch it was cut from
+_CPYTHON_VERSION_TAG_RE = _re.compile(r'^v(3\.\d+)\.\d+$')
 
 
 class CPythonBenchmarkForceScheduler(CustomForceScheduler):
     '''
     Force scheduler for the CPython benchmark builder.
 
-    The branch field is both what gets checked out and the branch the results
-    are uploaded under, so the two cannot disagree.  Leave the revision empty
-    to benchmark the tip of the branch; a tag or sha is verified to be on the
-    branch before anything is built.  Benchmarking your own branch off 3.12
-    means putting that branch's name here, not 3.12.
+    The branch field is both what gets checked out and, prefixed with
+    'cpython', the codespeed branch the results are uploaded under, so the two
+    cannot disagree.  Leave the revision empty to benchmark the tip of the
+    branch; a tag or sha is verified to be on the branch before anything is
+    built.  Benchmarking your own branch off 3.12 means putting that branch's
+    name here, not 3.12.
+
+    Leaving the branch empty takes it from the revision, which must then be a
+    release tag: v3.13.10 is on 3.13.
     '''
     def __init__(self, name, builderNames,
             cpython_branch=None,
@@ -127,13 +145,17 @@ class CPythonBenchmarkForceScheduler(CustomForceScheduler):
         # further down this file, after the class body has been evaluated
         if cpython_branch is None:
             cpython_branch = StringParameter(name="cpython_branch",
-                label="CPython branch (checked out, and the codespeed branch):",
-                default="main", required=True, length=30)
+                label="CPython branch (3.13, 3.14, etc):",
+                default="", required=False, size=30)
         if cpython_configure_args is None:
             cpython_configure_args = StringParameter(
                 name="cpython_configure_args",
                 label="CPython configure flags (the build variant):",
-                default=pypybuilds.DEFAULT_CPYTHON_CONFIGURE_ARGS, length=80)
+                default=pypybuilds.DEFAULT_CPYTHON_CONFIGURE_ARGS, size=120)
+        kwargs.setdefault('codebases', [CodebaseParameter(codebase='',
+            hide=True,
+            repository=FixedParameter(name='repository',
+                default=pypybuilds.DEFAULT_CPYTHON_REPOURL))])
         CustomForceScheduler.__init__(self, name, builderNames, **kwargs)
         for param in (cpython_branch, cpython_revision,
                       cpython_configure_args, benchmark_branch,
@@ -148,17 +170,21 @@ class CPythonBenchmarkForceScheduler(CustomForceScheduler):
                 value = value[0] if value else default
             return (value or '').strip()
 
-        branch = single('cpython_branch')
-        if not branch:
-            raise ValidationError(
-                "A CPython branch is required: it is both what gets checked "
-                "out and the branch the results are uploaded under.")
-        if not _CPYTHON_REF_RE.match(branch):
-            raise ValidationError("Not a valid branch name: %r" % branch)
-
         revision = single('cpython_revision')
         if revision and not _CPYTHON_REF_RE.match(revision):
             raise ValidationError("Not a valid tag or commit: %r" % revision)
+
+        branch = single('cpython_branch')
+        if not branch:
+            match = _CPYTHON_VERSION_TAG_RE.match(revision)
+            if not match:
+                raise ValidationError(
+                    "With the branch left empty, the tag it is taken from must "
+                    "look like v3.13.10: %r" % revision)
+            branch = match.group(1)
+            kwargs['cpython_branch'] = branch
+        if not _CPYTHON_REF_RE.match(branch):
+            raise ValidationError("Not a valid branch name: %r" % branch)
 
         configure_args = single('cpython_configure_args')
         if not _CPYTHON_CONFIGURE_RE.match(configure_args):
@@ -576,7 +602,7 @@ BuildmasterConfig = {
         CPythonBenchmarkForceScheduler('Force CPython Benchmark',
             builderNames=[
                         CPYTHONBENCH64_2,
-                    ], properties=[]),
+                    ]),
         CustomForceScheduler('Force Build',
             builderNames=[
                         # PYPYBUILDBOT,
@@ -906,4 +932,14 @@ BuildmasterConfig = {
     'projectURL': 'http://pypy.org/',
     'projectName': 'PyPy',
     'logMaxSize': 5*1024*1204, # 5M
+    'revlink': revlink,
     }
+
+if we_are_debugging():
+    # A debugging master has every builder pointed at the local slave (see
+    # master.cfg), so a Nightly firing would start the whole night's work
+    # here.  Keep the force schedulers and the Triggerables the build steps
+    # expect to find, drop the clocks.
+    BuildmasterConfig['schedulers'] = [
+        s for s in BuildmasterConfig['schedulers']
+        if not isinstance(s, Nightly)]
