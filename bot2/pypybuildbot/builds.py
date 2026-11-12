@@ -3,6 +3,7 @@ from buildbot.steps.source.git import Git
 from buildbot.process.buildstep import BuildStep
 from buildbot.process import factory
 from buildbot.steps import shell, transfer
+from buildbot.steps.master import SetProperty as MasterSetProperty
 from buildbot.steps.trigger import Trigger
 from buildbot.process.properties import WithProperties, Interpolate, Property, renderer
 from buildbot import locks
@@ -1366,6 +1367,10 @@ DEFAULT_CPYTHON_CONFIGURE_ARGS = (
     '--with-openssl=/usr/local --enable-shared '
     'PKG_CONFIG_PATH=/usr/local/lib/pkgconfig')
 
+# where the benchmarked CPython comes from; also the source stamp's repository,
+# which is what turns the revision into a link on the web status
+DEFAULT_CPYTHON_REPOURL = 'https://github.com/python/cpython'
+
 
 class CPythonBenchmark2(factory.BuildFactory):
     '''
@@ -1377,10 +1382,13 @@ class CPythonBenchmark2(factory.BuildFactory):
 
     Properties, all set by CPythonBenchmarkForceScheduler:
 
-      cpython_branch          required.  Both what gets checked out *and* the
-                              branch the results are uploaded under, so the two
-                              cannot disagree.  Your own branch name is fine:
-                              codespeed creates branches on demand.
+      cpython_branch          Both what gets checked out *and*, prefixed with
+                              'cpython', the codespeed branch the results are
+                              uploaded under, so the two cannot disagree.  Your
+                              own branch name is fine: codespeed creates
+                              branches on demand.  The scheduler fills it in
+                              from a v3.13.10-style revision if it was left
+                              empty.
       cpython_revision        optional tag or sha.  Empty means the branch tip.
                               If given, it is verified to be on the branch
                               before anything is built.
@@ -1393,7 +1401,7 @@ class CPythonBenchmark2(factory.BuildFactory):
     in cpython3.12 with no branch-to-executable table to keep in sync.
     '''
     def __init__(self, platform='linux64', host='benchmarker2',
-                 cpython_repourl='https://github.com/python/cpython',
+                 cpython_repourl=DEFAULT_CPYTHON_REPOURL,
                  upload_credentials=None):
         factory.BuildFactory.__init__(self)
 
@@ -1487,6 +1495,21 @@ class CPythonBenchmark2(factory.BuildFactory):
             haltOnFailure=True,
             workdir='./cpython'))
 
+        @renderer
+        def get_display_revision(props):
+            # 'got_revision' is what the web status shows, and links against
+            # the source stamp's repository: the tag that was asked for when
+            # there was one, since it says more than the sha, and otherwise
+            # the sha the branch tip resolved to.  The upload keeps using
+            # cpython_got_revision, which is always the sha.
+            return ((props.getProperty('cpython_revision') or '').strip()
+                    or props.getProperty('cpython_got_revision'))
+
+        self.addStep(MasterSetProperty(
+            name="set_got_revision",
+            property='got_revision',
+            value=get_display_revision))
+
         # ---------------------------------------------------------------
         # Build
         # ---------------------------------------------------------------
@@ -1511,10 +1534,16 @@ class CPythonBenchmark2(factory.BuildFactory):
             prefix = props.getProperty('cpython_prefix')
             args = (props.getProperty('cpython_configure_args')
                     or DEFAULT_CPYTHON_CONFIGURE_ARGS)
-            # $ORIGIN must reach the linker literally, hence the single quotes
+            # $ORIGIN has to reach the linker literally, through three
+            # expansions: the single quotes get it past bash -c, configure
+            # writes it into the Makefile verbatim, where make turns '$$' into
+            # '$' and sh then drops the backslash.  Spelled '$ORIGIN' there,
+            # make expands '$O' as an (empty) variable and the rpath becomes
+            # 'RIGIN/../lib' -- whereupon the installed python silently loads
+            # whatever libpython3.x.so the system happens to have.
             return ['bash', '-c',
                     "./configure --prefix=%s %s "
-                    "LDFLAGS='-Wl,-rpath,$ORIGIN/../lib'" % (prefix, args)]
+                    "LDFLAGS='-Wl,-rpath,\$$ORIGIN/../lib'" % (prefix, args)]
 
         # These steps may run while another build benchmarks; only the
         # measurement steps below take the lock exclusively.
@@ -1662,9 +1691,10 @@ class CPythonBenchmark2(factory.BuildFactory):
             workdir='.'))
 
         def _props_for_upload(props):
+            # codespeed names the branch 'cpython3.13', the git branch is '3.13'
             return (props.getProperty('cpython_executable'),
                     props.getProperty('cpython_got_revision'),
-                    props.getProperty('cpython_branch'))
+                    'cpython' + props.getProperty('cpython_branch'))
 
         @renderer
         def get_legacy_upload_cmd(props):
