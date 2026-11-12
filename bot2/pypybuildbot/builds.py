@@ -979,49 +979,56 @@ class JITBenchmarkSingleRun(factory.BuildFactory):
                                          masterdest=WithProperties(resfile),
                                          workdir="."))
 
+def update_benchmarks_repo(platform, factory,
+                           repourl='https://foss.heptapod.net/pypy/benchmarks'):
+    """Check out the legacy benchmark repo at the 'benchmark_branch' property.
+
+    The stock hg update steps take the branch from the source stamp, which here
+    refers to the interpreter being benchmarked, not to the benchmark repo --
+    hence the hand-rolled clone/pull/update.
+    """
+    if platform in ("win32", "win64"):
+        command = "if NOT EXIST .hg rmdir /q /s ."
+    else:
+        command = "if [ ! -d .hg ]; then rm -fr * .[a-z]*; fi"
+    factory.addStep(ShellCmd(description="rmdir?",
+                             command=command,
+                             workdir='./benchmarks',
+                             haltOnFailure=False))
+    if platform in ("win32", "win64"):
+        command = "if NOT EXIST .hg %s"
+    else:
+        command = "if [ ! -d .hg ]; then %s; fi"
+    command = command % ("hg clone -U " + repourl + " .")
+    factory.addStep(ShellCmd(description="hg clone",
+                             command=command,
+                             workdir='./benchmarks',
+                             timeout=3600,
+                             haltOnFailure=True))
+    factory.addStep(
+        ShellCmd(description="benchmrk: hg purge",
+                 command="hg --config extensions.purge= purge --all",
+                 workdir='./benchmarks',
+                 haltOnFailure=True))
+    factory.addStep(ShellCmd(description="benchmrk: hg pull",
+                             command="hg pull %s" % repourl,
+                             workdir='./benchmarks'))
+    factory.addStep(ShellCmd(description="benchmrk: hg update",
+        command=Interpolate("hg update --clean %(prop:benchmark_branch)s"),
+        workdir='./benchmarks'))
+    factory.addStep(ShellCmd(description="benchmrk: hg report revision",
+        command=Interpolate("hg parents --template='got_revision:{rev}:{node}'"),
+        workdir='./benchmarks'))
+
+
 class JITBenchmark(factory.BuildFactory):
     def __init__(self, platform='linux', host='benchmarker', postfix='',
                  upload_credentials=None):
         factory.BuildFactory.__init__(self)
 
-        #
-        repourl = 'https://foss.heptapod.net/pypy/benchmarks'
         # benchmark_branch is the branch in the benchmark repo,
         # the rest refer to the pypy version to benchmark
-       
-        # Since we want to use the benchmark_branch, copy the hg update steps
-        if platform in ("win32", "win64"):
-            command = "if NOT EXIST .hg rmdir /q /s ."
-        else:
-            command = "if [ ! -d .hg ]; then rm -fr * .[a-z]*; fi"
-        self.addStep(ShellCmd(description="rmdir?",
-                                 command=command,
-                                 workdir='./benchmarks',
-                                 haltOnFailure=False))
-        if platform in ("win32", "win64"):
-            command = "if NOT EXIST .hg %s"
-        else:
-            command = "if [ ! -d .hg ]; then %s; fi"
-        command = command % ("hg clone -U " + repourl + " .")
-        self.addStep(ShellCmd(description="hg clone",
-                                 command=command,
-                                 workdir='./benchmarks',
-                                 timeout=3600,
-                                 haltOnFailure=True))
-        self.addStep(
-            ShellCmd(description="benchmrk: hg purge",
-                 command="hg --config extensions.purge= purge --all",
-                 workdir='./benchmarks',
-                 haltOnFailure=True))
-        self.addStep(ShellCmd(description="benchmrk: hg pull",
-                                 command="hg pull %s" % repourl,
-                                 workdir='./benchmarks'))
-        self.addStep(ShellCmd(description="benchmrk: hg update",
-            command=Interpolate("hg update --clean %(prop:benchmark_branch)s"),
-            workdir='./benchmarks'))
-        self.addStep(ShellCmd(description="benchmrk: hg report revision",
-            command=Interpolate("hg parents --template='got_revision:{rev}:{node}'"),
-            workdir='./benchmarks'))
+        update_benchmarks_repo(platform, self)
 
         setup_steps(platform, self)
         if host == 'benchmarker':
@@ -1352,78 +1359,359 @@ if failed:
                                          workdir="."))
 
 
-class CPythonBenchmark(factory.BuildFactory):
-    '''
-    Check out and build CPython and run the benchmarks with it.
+# The build variant, and the only thing that distinguishes two runs of the
+# same CPython version.  Matches the recipe in RUNNING_CPYTHON_BENCHMARKS.md.
+DEFAULT_CPYTHON_CONFIGURE_ARGS = (
+    '--enable-optimizations --with-lto --with-computed-gotos '
+    '--with-openssl=/usr/local --enable-shared '
+    'PKG_CONFIG_PATH=/usr/local/lib/pkgconfig')
 
-    This will overwrite the branch even if it was specified
-    in the buildbot webinterface!
+
+class CPythonBenchmark2(factory.BuildFactory):
     '''
-    def __init__(self, branch, platform='linux64'):
-        '''
-        branch: The branch of cpython that will be used.
-        '''
+    Build CPython and run both benchmark suites, uploading to codespeed.
+
+    Mirrors JITBenchmark, minus the translation, minus the jit/nojit split, and
+    minus the patch_*_pypy.py compatibility patches, which are PyPy-only and
+    must not be applied here.
+
+    Properties, all set by CPythonBenchmarkForceScheduler:
+
+      cpython_branch          required.  Both what gets checked out *and* the
+                              branch the results are uploaded under, so the two
+                              cannot disagree.  Your own branch name is fine:
+                              codespeed creates branches on demand.
+      cpython_revision        optional tag or sha.  Empty means the branch tip.
+                              If given, it is verified to be on the branch
+                              before anything is built.
+      cpython_configure_args  configure flags, i.e. the build variant.
+      benchmark_branch        branch of the legacy benchmarks repo.
+      pyperformance_spec      pip specifier for pyperformance.
+
+    The codespeed executable is not configured anywhere: it is read back from
+    the interpreter that was built ('cpython3.12'), so a branch off 3.12 lands
+    in cpython3.12 with no branch-to-executable table to keep in sync.
+    '''
+    def __init__(self, platform='linux64', host='benchmarker2',
+                 cpython_repourl='https://github.com/python/cpython',
+                 upload_credentials=None):
         factory.BuildFactory.__init__(self)
 
-        # check out and update benchmarks
-        repourl = 'https://foss.heptapod.net/pypy/benchmarks'
-        update_hg(platform, self, repourl, 'benchmarks', 'default', use_branch=False)
+        update_benchmarks_repo(platform, self)
 
-        # checks out and updates the repo
-        setup_steps(platform, self, repourl='http://hg.python.org/cpython',
-                    force_branch=branch)
+        if host == 'benchmarker':
+            lock = BenchmarkerLock
+        elif host == 'benchmarker2':
+            lock = Benchmarker2Lock
+        elif host == 'speed_python':
+            lock = SpeedPythonCPU
+        else:
+            assert False, 'unknown host %s' % host
 
-        lock = SpeedPythonCPU
+        upload_env = {
+            'SPEED_UPLOAD_URL': os.environ.get('SPEED_UPLOAD_URL', 'https://speed.pypy.org/'),
+            'SPEED_UPLOAD_HOST': os.environ.get('SPEED_UPLOAD_HOST', host),
+        }
+        if upload_credentials:
+            upload_env['SPEED_UPLOAD_USER'] = upload_credentials.get('username', '')
+            upload_env['SPEED_UPLOAD_PASSWORD'] = upload_credentials.get('password', '')
 
+        # matches the recipe: the container's openssl etc. live in /usr/local
+        build_env = {'LD_LIBRARY_PATH': '/usr/local/lib64:${LD_LIBRARY_PATH}'}
+
+        # ---------------------------------------------------------------
+        # CPython checkout
+        # ---------------------------------------------------------------
         self.addStep(ShellCmd(
-            description="configure cpython",
-            command=["./configure"],
-            timeout=300,
+            description="cpython: clone",
+            command="if [ ! -d .git ]; then rm -fr * .[a-z]*; "
+                    "git clone %s .; fi" % cpython_repourl,
+            workdir='./cpython',
+            timeout=3600,
+            haltOnFailure=True))
+        self.addStep(ShellCmd(
+            description="cpython: fetch",
+            command=['git', 'fetch', '--tags', '--force', '--prune', 'origin'],
+            workdir='./cpython',
+            timeout=3600,
             haltOnFailure=True))
 
-        self.addStep(ShellCmd(
-            description="cleanup cpython",
-            command=["make", "clean"],
-            timeout=300))
+        def has_revision(step):
+            return bool((step.build.getProperty('cpython_revision')
+                         or '').strip())
+
+        @renderer
+        def get_ancestry_cmd(props):
+            # The whole of the branch-vs-revision problem in one command: a
+            # revision that is not on the branch would otherwise be uploaded
+            # under it and be indistinguishable from a genuine result.
+            rev = (props.getProperty('cpython_revision') or '').strip()
+            branch = props.getProperty('cpython_branch')
+            return ['git', 'merge-base', '--is-ancestor', rev,
+                    'origin/%s' % branch]
 
         self.addStep(ShellCmd(
-            description="make cpython",
-            command=["make"],
-            timeout=600,
-            haltOnFailure=True))
+            description="cpython: revision is on branch",
+            command=get_ancestry_cmd,
+            doStepIf=has_revision,
+            haltOnFailure=True,
+            workdir='./cpython'))
+
+        @renderer
+        def get_checkout_cmd(props):
+            rev = (props.getProperty('cpython_revision') or '').strip()
+            branch = props.getProperty('cpython_branch')
+            return ['git', 'checkout', '-f',
+                    rev if rev else 'origin/%s' % branch]
 
         self.addStep(ShellCmd(
-            description="test cpython",
-            command=["make", "buildbottest"],
-            haltOnFailure=False,
-            warnOnFailure=True,
-            timeout=600))
+            description="cpython: checkout",
+            command=get_checkout_cmd,
+            haltOnFailure=True,
+            workdir='./cpython'))
+        self.addStep(ShellCmd(
+            description="cpython: clean tree",
+            command=['git', 'clean', '-fdx'],
+            haltOnFailure=True,
+            workdir='./cpython'))
 
-        cpython_interpreter = '../build/python'
+        def extract_revision(rc, stdout, stderr):
+            sha = stdout.split()[0]
+            return {'cpython_got_revision': sha,
+                    'cpython_got_revision_short': sha[:12]}
+
+        self.addStep(shell.SetPropertyFromCommand(
+            description="cpython: got_revision",
+            command=['git', 'rev-parse', 'HEAD'],
+            extract_fn=extract_revision,
+            haltOnFailure=True,
+            workdir='./cpython'))
+
+        # ---------------------------------------------------------------
+        # Build
+        # ---------------------------------------------------------------
+        # A prefix inside the builddir, not a shared /opt: two builds of the
+        # same version must not overwrite each other, or the results can no
+        # longer be told apart.
+        self.addStep(shell.SetPropertyFromCommand(
+            description="cpython: install prefix",
+            command=['python', '-c',
+                     "import os; print(os.path.abspath('cpython-install'))"],
+            property='cpython_prefix',
+            haltOnFailure=True,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description="cpython: clear install prefix",
+            command=Interpolate('rm -rf %(prop:cpython_prefix)s'),
+            haltOnFailure=True,
+            workdir='.'))
+
+        @renderer
+        def get_configure_cmd(props):
+            prefix = props.getProperty('cpython_prefix')
+            args = (props.getProperty('cpython_configure_args')
+                    or DEFAULT_CPYTHON_CONFIGURE_ARGS)
+            # $ORIGIN must reach the linker literally, hence the single quotes
+            return ['bash', '-c',
+                    "./configure --prefix=%s %s "
+                    "LDFLAGS='-Wl,-rpath,$ORIGIN/../lib'" % (prefix, args)]
+
+        # These steps may run while another build benchmarks; only the
+        # measurement steps below take the lock exclusively.
+        self.addStep(ShellCmd(
+            description="cpython: configure",
+            command=get_configure_cmd,
+            env=build_env,
+            locks=[lock.access('counting')],
+            timeout=1800,
+            haltOnFailure=True,
+            workdir='./cpython'))
+        self.addStep(ShellCmd(
+            description="cpython: make",
+            command=['bash', '-c', 'make -j$(nproc)'],
+            env=build_env,
+            locks=[lock.access('counting')],
+            timeout=7200,
+            haltOnFailure=True,
+            workdir='./cpython'))
+        self.addStep(ShellCmd(
+            description="cpython: make install",
+            command=['make', 'install'],
+            env=build_env,
+            locks=[lock.access('counting')],
+            timeout=1800,
+            haltOnFailure=True,
+            workdir='./cpython'))
+
+        @renderer
+        def get_pip_cmd(props):
+            return [props.getProperty('cpython_prefix') + '/bin/python3',
+                    '-m', 'pip', 'install', 'setuptools<70']
+
+        self.addStep(ShellCmd(
+            description="cpython: pip install setuptools",
+            command=get_pip_cmd,
+            env=build_env,
+            haltOnFailure=True,
+            workdir='.'))
+
+        # The codespeed executable name, read off the built interpreter.
+        @renderer
+        def get_executable_probe_cmd(props):
+            return [props.getProperty('cpython_prefix') + '/bin/python3', '-c',
+                    "import sys; print('cpython%d.%d' % sys.version_info[:2])"]
+
+        self.addStep(shell.SetPropertyFromCommand(
+            description="cpython: executable name",
+            command=get_executable_probe_cmd,
+            property='cpython_executable',
+            env=build_env,
+            haltOnFailure=True,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description="cpython: check executable name",
+            command=Interpolate(
+                'echo "%(prop:cpython_executable)s" | '
+                'grep -Eq "^cpython[0-9]+\\.[0-9]+$"'),
+            haltOnFailure=True,
+            workdir='.'))
+
+        # ---------------------------------------------------------------
+        # Legacy suite
+        # ---------------------------------------------------------------
+        # run_local.py, not runner.py directly: it also records the 'metadata'
+        # dict (configure line, mtime, cpu affinity) that nothing else does.
+        # It puts the real timings in base_times, hence --baseline on upload.
+        @renderer
+        def get_legacy_run_cmd(props):
+            python = props.getProperty('cpython_prefix') + '/bin/python3'
+            return [python, 'run_local.py', python, '-o', 'result.json']
+
         self.addStep(ShellCmd(
             # this step needs exclusive access to the CPU
             locks=[lock.access('exclusive')],
-            description="run benchmarks on top of cpython",
-            command=["python", "runner.py", '--output-filename', 'result.json',
-                     '--changed', cpython_interpreter,
-                     '--baseline', './nullpython.py',
-                     '--upload',
-                     '--upload-project', 'cpython',
-                     '--upload-executable', 'cpython2',
-                     '--revision', WithProperties('%(got_revision)s'),
-                     '--branch', WithProperties('%(branch)s'),
-                     '--upload-urls', 'http://localhost/',
-                     ],
+            description="run legacy benchmarks on top of cpython",
+            command=get_legacy_run_cmd,
+            env=build_env,
             workdir='./benchmarks',
             haltOnFailure=True,
-            timeout=3600))
+            timeout=7200))
 
-        # a bit obscure hack to get both os.path.expand and a property
-        filename = '%(got_revision)s'
-        resultfile = os.path.expanduser("~/bench_results/%s.json" % filename)
+        # ---------------------------------------------------------------
+        # pyperformance suite
+        # ---------------------------------------------------------------
+        @renderer
+        def get_pyperformance_venv_cmd(props):
+            python = props.getProperty('cpython_prefix') + '/bin/python3'
+            return ['bash', '-c', 'rm -rf pyperformance_venv && '
+                                  '%s -m venv pyperformance_venv' % python]
+
+        @renderer
+        def get_pyperformance_install_cmd(props):
+            spec = props.getProperty('pyperformance_spec',
+                                     default='pyperformance').strip()
+            return ['./pyperformance_venv/bin/pip', 'install', '--upgrade', spec]
+
+        @renderer
+        def get_pyperformance_bench_venv_cmd(props):
+            return ['./pyperformance_venv/bin/python', '-m', 'pyperformance',
+                    'venv', 'recreate', '-p',
+                    props.getProperty('cpython_prefix') + '/bin/python3']
+
+        @renderer
+        def get_pyperformance_run_cmd(props):
+            python = props.getProperty('cpython_prefix') + '/bin/python3'
+            return ['bash', '-c',
+                    'rm -f pyperformance_result.json && '
+                    './pyperformance_venv/bin/python -m pyperformance run '
+                    '--python %s --output pyperformance_result.json' % python]
+
+        self.addStep(ShellCmd(
+            description='create pyperformance venv',
+            command=get_pyperformance_venv_cmd,
+            env=build_env,
+            haltOnFailure=True,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='install pyperformance',
+            command=get_pyperformance_install_cmd,
+            env=build_env,
+            haltOnFailure=True,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='create pyperformance benchmark venv',
+            command=get_pyperformance_bench_venv_cmd,
+            env=build_env,
+            haltOnFailure=True,
+            workdir='.'))
+        self.addStep(ShellCmd(
+            description='run pyperformance',
+            command=get_pyperformance_run_cmd,
+            env=build_env,
+            locks=[lock.access('exclusive')],
+            haltOnFailure=True,
+            workdir='.',
+            timeout=14400))
+
+        # ---------------------------------------------------------------
+        # Upload
+        # ---------------------------------------------------------------
+        self.addStep(transfer.FileDownload(
+            mastersrc=os.path.join(os.path.dirname(__file__), 'bulk_upload.py'),
+            slavedest='bulk_upload.py',
+            workdir='.'))
+
+        def _props_for_upload(props):
+            return (props.getProperty('cpython_executable'),
+                    props.getProperty('cpython_got_revision'),
+                    props.getProperty('cpython_branch'))
+
+        @renderer
+        def get_legacy_upload_cmd(props):
+            exe, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
+                    '-e', exe, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', 'cpython', '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL'],
+                    '--baseline']
+
+        @renderer
+        def get_pyperformance_upload_cmd(props):
+            exe, rev, branch = _props_for_upload(props)
+            return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
+                    '-e', exe, '-H', upload_env['SPEED_UPLOAD_HOST'],
+                    '-P', 'cpython', '-r', rev, '-B', branch,
+                    '-u', upload_env['SPEED_UPLOAD_URL']]
+
+        self.addStep(UploadCmd(
+            description='upload legacy results',
+            command=get_legacy_upload_cmd,
+            env=upload_env,
+            logEnviron=False,
+            workdir='.'))
+        self.addStep(UploadCmd(
+            description='upload pyperformance results',
+            command=get_pyperformance_upload_cmd,
+            env=upload_env,
+            logEnviron=False,
+            workdir='.'))
+
+        # ---------------------------------------------------------------
+        # Archive the raw result files on the master
+        # ---------------------------------------------------------------
+        # Codespeed keeps one aggregate value per benchmark; the per-iteration
+        # timings, std devs and run metadata only exist in these files.
+        filename = 'cpython-%(cpython_got_revision_short)s'
+        resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
-                                         masterdest=WithProperties(resultfile),
+                                         masterdest=WithProperties(resfile),
                                          workdir="."))
+        pyresfile = os.path.expanduser(
+            "~/bench_results/%s-pyperformance.json" % filename)
+        self.addStep(transfer.FileUpload(slavesrc="pyperformance_result.json",
+                                         masterdest=WithProperties(pyresfile),
+                                         workdir="."))
+
 
 class PyPyBuildbotTestFactory(factory.BuildFactory):
     def __init__(self):
