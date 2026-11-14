@@ -1543,7 +1543,9 @@ class CPythonBenchmark2(factory.BuildFactory):
             # whatever libpython3.x.so the system happens to have.
             return ['bash', '-c',
                     "./configure --prefix=%s %s "
-                    "LDFLAGS='-Wl,-rpath,\$$ORIGIN/../lib'" % (prefix, args)]
+                    "LDFLAGS='-Wl,-rpath,\$$ORIGIN/../lib "
+                    "-Wl,-rpath,/usr/local/lib64 -L/usr/local/lib64'"
+                    % (prefix, args)]
 
         # These steps may run while another build benchmarks; only the
         # measurement steps below take the lock exclusively.
