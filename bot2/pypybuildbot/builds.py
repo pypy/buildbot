@@ -13,6 +13,7 @@ import base64
 import glob
 import os
 import json
+import re
 
 # buildbot supports SlaveLocks, which can be used to limit the amout of builds
 # to be run on each slave in parallel.  However, they assume that each
@@ -1372,6 +1373,33 @@ DEFAULT_CPYTHON_CONFIGURE_ARGS = (
 DEFAULT_CPYTHON_REPOURL = 'https://github.com/python/cpython'
 
 
+# Everything CPython uploads goes in under this one codespeed executable.
+# Executables are the build-variant axis ('cpython' vs a future 'cpython-lto'),
+# not the version axis: the version is already carried by the revision, and a
+# per-version executable would mean editing DEF_BASELINES in the codespeed
+# settings on every release.
+CPYTHON_EXECUTABLE = 'cpython'
+
+# ...and release builds all land on this one codespeed branch, which is where
+# the historical 2.7.11 / 3.7.19 / 3.11.9 results already live, so the
+# timeline is a single series across releases.  It is a codespeed branch name
+# and has nothing to do with the git branch that was checked out.
+CPYTHON_RELEASE_BRANCH = '3'
+
+# A released interpreter reports a bare version, '3.12.16'.  patchlevel.h is
+# not touched between releases, so every commit after the v3.12.16 tag also
+# reports micro 16 at releaselevel 'final' -- sys.version_info cannot tell
+# them apart.  PY_VERSION can: the branch carries a trailing '+' ('3.12.16+'),
+# and pre-releases carry 'a0' / 'b1' / 'rc2'.  Hence the bare-version match
+# below: it is true only for an actual release build.
+CPYTHON_RELEASE_VERSION_RE = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+$')
+
+# What the version probe may return at all.  A probe that returns anything
+# else is a broken build, not a non-release build, and must not quietly fall
+# back to the sha path.
+CPYTHON_ANY_VERSION_RE = r'^[0-9]+\.[0-9]+\.[0-9]+([+]|a[0-9]+|b[0-9]+|rc[0-9]+)?$'
+
+
 class CPythonBenchmark2(factory.BuildFactory):
     '''
     Build CPython and run both benchmark suites, uploading to codespeed.
@@ -1382,13 +1410,14 @@ class CPythonBenchmark2(factory.BuildFactory):
 
     Properties, all set by CPythonBenchmarkForceScheduler:
 
-      cpython_branch          Both what gets checked out *and*, prefixed with
-                              'cpython', the codespeed branch the results are
-                              uploaded under, so the two cannot disagree.  Your
-                              own branch name is fine: codespeed creates
-                              branches on demand.  The scheduler fills it in
-                              from a v3.13.10-style revision if it was left
-                              empty.
+      cpython_branch          What gets checked out.  For a non-release build
+                              it is also, prefixed with 'cpython', the
+                              codespeed branch the results are uploaded under,
+                              so the two cannot disagree; a release build goes
+                              on CPYTHON_RELEASE_BRANCH instead.  Your own
+                              branch name is fine: codespeed creates branches
+                              on demand.  The scheduler fills it in from a
+                              v3.13.10-style revision if it was left empty.
       cpython_revision        optional tag or sha.  Empty means the branch tip.
                               If given, it is verified to be on the branch
                               before anything is built.
@@ -1396,9 +1425,12 @@ class CPythonBenchmark2(factory.BuildFactory):
       benchmark_branch        branch of the legacy benchmarks repo.
       pyperformance_spec      pip specifier for pyperformance.
 
-    The codespeed executable is not configured anywhere: it is read back from
-    the interpreter that was built ('cpython3.12'), so a branch off 3.12 lands
-    in cpython3.12 with no branch-to-executable table to keep in sync.
+    The codespeed executable is a constant (CPYTHON_EXECUTABLE), so there is no
+    branch-to-executable table to keep in sync.  What a result is uploaded as
+    comes from the interpreter that was built: a bare PY_VERSION means a
+    release build, which goes in as that version on CPYTHON_RELEASE_BRANCH;
+    anything else keeps its sha on cpython_branch, where it cannot collide
+    with a release.  See the module constants above.
     '''
     def __init__(self, platform='linux64', host='benchmarker2',
                  cpython_repourl=DEFAULT_CPYTHON_REPOURL,
@@ -1510,6 +1542,18 @@ class CPythonBenchmark2(factory.BuildFactory):
             property='got_revision',
             value=get_display_revision))
 
+        # The commit date, not the time we happened to benchmark it.  Codespeed
+        # orders a branch's timeline by revision date, and all releases share
+        # one branch, so without this the series is in whatever order the
+        # builds were run: benchmark 3.12.16 before 3.11.18 and it goes
+        # backwards.
+        self.addStep(shell.SetPropertyFromCommand(
+            description="cpython: revision date",
+            command=['git', 'log', '-1', '--format=%cI', 'HEAD'],
+            property='cpython_revision_date',
+            haltOnFailure=True,
+            workdir='./cpython'))
+
         # ---------------------------------------------------------------
         # Build
         # ---------------------------------------------------------------
@@ -1586,24 +1630,27 @@ class CPythonBenchmark2(factory.BuildFactory):
             haltOnFailure=True,
             workdir='.'))
 
-        # The codespeed executable name, read off the built interpreter.
+        # PY_VERSION, read off the built interpreter.  sys.version's leading
+        # token is PY_VERSION verbatim, trailing '+' and all; the '+' is what
+        # separates a release build from a later commit on the same branch, so
+        # do not go through sys.version_info here -- it drops the '+'.
         @renderer
-        def get_executable_probe_cmd(props):
+        def get_version_probe_cmd(props):
             return [props.getProperty('cpython_prefix') + '/bin/python3', '-c',
-                    "import sys; print('cpython%d.%d' % sys.version_info[:2])"]
+                    "import sys; print(sys.version.split()[0])"]
 
         self.addStep(shell.SetPropertyFromCommand(
-            description="cpython: executable name",
-            command=get_executable_probe_cmd,
-            property='cpython_executable',
+            description="cpython: version",
+            command=get_version_probe_cmd,
+            property='cpython_version',
             env=build_env,
             haltOnFailure=True,
             workdir='.'))
         self.addStep(ShellCmd(
-            description="cpython: check executable name",
+            description="cpython: check version",
             command=Interpolate(
-                'echo "%(prop:cpython_executable)s" | '
-                'grep -Eq "^cpython[0-9]+\\.[0-9]+$"'),
+                'echo "%(prop:cpython_version)s" | grep -Eq '
+                "'" + CPYTHON_ANY_VERSION_RE + "'"),
             haltOnFailure=True,
             workdir='.'))
 
@@ -1693,27 +1740,49 @@ class CPythonBenchmark2(factory.BuildFactory):
             workdir='.'))
 
         def _props_for_upload(props):
-            # codespeed names the branch 'cpython3.13', the git branch is '3.13'
-            return (props.getProperty('cpython_executable'),
-                    props.getProperty('cpython_got_revision'),
+            """Return the (revision, codespeed branch) to upload under.
+
+            A release build is identified by its own PY_VERSION and goes in as
+            that version on CPYTHON_RELEASE_BRANCH, giving the comparison page
+            one entry per release and the timeline one series across them.
+
+            Anything else -- a post-release branch build, a pre-release, a
+            personal branch -- keeps its sha on its own branch, codespeed
+            naming it 'cpython3.13' where the git branch is '3.13'.  It has to:
+            every commit between two releases reports the earlier release's
+            version, so uploading those as the version would land them on the
+            same (commitid, branch) as the release itself, and codespeed
+            overwrites a revision's results in place rather than rejecting the
+            duplicate.  The sha path also keeps the uploaded branch in step
+            with the checked-out one, which is what the ancestry check above is
+            there to enforce.
+            """
+            version = (props.getProperty('cpython_version') or '').strip()
+            if CPYTHON_RELEASE_VERSION_RE.match(version):
+                return version, CPYTHON_RELEASE_BRANCH
+            return (props.getProperty('cpython_got_revision'),
                     'cpython' + props.getProperty('cpython_branch'))
+
+        def _upload_cmd(props, jsonfile, extra=()):
+            rev, branch = _props_for_upload(props)
+            cmd = ['python3', 'bulk_upload.py', jsonfile,
+                   '-e', CPYTHON_EXECUTABLE,
+                   '-H', upload_env['SPEED_UPLOAD_HOST'],
+                   '-P', 'cpython', '-r', rev, '-B', branch,
+                   '-u', upload_env['SPEED_UPLOAD_URL']]
+            rev_date = props.getProperty('cpython_revision_date')
+            if rev_date:
+                cmd += ['-d', rev_date]
+            return cmd + list(extra)
 
         @renderer
         def get_legacy_upload_cmd(props):
-            exe, rev, branch = _props_for_upload(props)
-            return ['python3', 'bulk_upload.py', 'benchmarks/result.json',
-                    '-e', exe, '-H', upload_env['SPEED_UPLOAD_HOST'],
-                    '-P', 'cpython', '-r', rev, '-B', branch,
-                    '-u', upload_env['SPEED_UPLOAD_URL'],
-                    '--baseline']
+            return _upload_cmd(props, 'benchmarks/result.json',
+                               extra=['--baseline'])
 
         @renderer
         def get_pyperformance_upload_cmd(props):
-            exe, rev, branch = _props_for_upload(props)
-            return ['python3', 'bulk_upload.py', 'pyperformance_result.json',
-                    '-e', exe, '-H', upload_env['SPEED_UPLOAD_HOST'],
-                    '-P', 'cpython', '-r', rev, '-B', branch,
-                    '-u', upload_env['SPEED_UPLOAD_URL']]
+            return _upload_cmd(props, 'pyperformance_result.json')
 
         self.addStep(UploadCmd(
             description='upload legacy results',

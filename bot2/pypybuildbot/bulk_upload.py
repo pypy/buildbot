@@ -9,6 +9,12 @@ Supports two input formats:
 Revision and branch are read from the JSON file when possible (legacy format);
 pass --revision / --branch on the command line to override or when using pyperf.
 
+--revision-date sets the date codespeed stores on the revision.  Without it
+codespeed uses the time of upload, which orders the timeline by when a build
+happened to be benchmarked rather than by what it is -- benchmark 3.12.15
+before 3.11.17 and the branch's series runs backwards.  Pass the release's
+commit date for a tagged build.
+
 Examples:
   # legacy, jit-off results
   ./bulk_upload.py result.json -e pypy-c-64 -H benchmarker
@@ -21,6 +27,7 @@ Examples:
 """
 import argparse
 import collections
+import datetime
 import json
 import os
 import statistics
@@ -126,6 +133,8 @@ def build_codespeed_record(name, value, std_dev, args,
         record['std_dev'] = std_dev
     if suite_version:
         record['suite_version'] = suite_version
+    if args.revision_date:
+        record['revision_date'] = args.revision_date
     return record
 
 
@@ -195,6 +204,9 @@ def main():
                         help='Commit id (read from file if omitted)')
     parser.add_argument('-B', '--branch', default=None,
                         help='Branch name (read from file if omitted)')
+    parser.add_argument('-d', '--revision-date', default=None,
+                        help='ISO 8601 date to store on the revision, e.g. '
+                             '2026-06-03T18:21:44+00:00 (default: upload time)')
     parser.add_argument('-P', '--project', default='PyPy',
                         help='Project name in codespeed (default: PyPy)')
     parser.add_argument('-u', '--url', default='https://speed.pypy.org/',
@@ -216,6 +228,17 @@ def main():
 
     if not args.revision:
         parser.error('--revision is required (could not read from file)')
+
+    if args.revision_date:
+        # Fail here rather than after POSTing a few hundred records: codespeed
+        # rejects an unparseable date per result, so a typo means every record
+        # is refused one at a time.
+        args.revision_date = args.revision_date.strip()
+        try:
+            datetime.datetime.fromisoformat(args.revision_date)
+        except ValueError:
+            parser.error('--revision-date %r is not an ISO 8601 date'
+                         % args.revision_date)
 
     if not args.url.endswith('/'):
         args.url += '/'
