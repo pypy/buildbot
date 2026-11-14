@@ -43,7 +43,7 @@ exec podman run \
     /bin/bash -c "
         set -euo pipefail
 
-        PATH=$PATH:$PYPY
+        PATH=\$PATH:$PYPY
 
         if [ -x /tmp/venv/bin/twistd ]; then
             . /tmp/venv/bin/activate
