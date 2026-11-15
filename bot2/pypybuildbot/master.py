@@ -4,7 +4,7 @@ import time
 from buildbot.scheduler import Nightly, Triggerable
 from buildbot.schedulers.forcesched import (ForceScheduler, ValidationError,
          CodebaseParameter, StringParameter, BaseParameter, UserNameParameter,
-         FixedParameter)
+         FixedParameter, BooleanParameter)
 from buildbot.buildslave import BuildSlave
 from buildbot.buildslave.base import log
 from buildbot.status.html import WebStatus
@@ -112,6 +112,8 @@ _CPYTHON_REF_RE = _re.compile(r'^[A-Za-z0-9._/-]+$')
 _CPYTHON_CONFIGURE_RE = _re.compile(r'^[-A-Za-z0-9_=+,./ ]*$')
 # a release tag, v3.13.10, which names the branch it was cut from
 _CPYTHON_VERSION_TAG_RE = _re.compile(r'^v(3\.\d+)\.\d+$')
+# goes into an archive filename, so no '/' and nothing a shell would mind
+_CPYTHON_RESULT_TAG_RE = _re.compile(r'^[A-Za-z0-9._-]*$')
 
 
 class CPythonBenchmarkForceScheduler(CustomForceScheduler):
@@ -140,6 +142,11 @@ class CPythonBenchmarkForceScheduler(CustomForceScheduler):
             pyperformance_spec=StringParameter(name="pyperformance_spec",
                 label="pyperformance pip specifier:",
                 default="pyperformance", length=60),
+            upload_results=BooleanParameter(name="upload_results",
+                label="Upload the results to codespeed:", default=True),
+            result_tag=StringParameter(name="result_tag",
+                label="Archive filename tag (for build variants):",
+                default="", required=False, size=30),
             **kwargs):
         # built here rather than in the signature: pypybuilds is loaded
         # further down this file, after the class body has been evaluated
@@ -159,7 +166,7 @@ class CPythonBenchmarkForceScheduler(CustomForceScheduler):
         CustomForceScheduler.__init__(self, name, builderNames, **kwargs)
         for param in (cpython_branch, cpython_revision,
                       cpython_configure_args, benchmark_branch,
-                      pyperformance_spec):
+                      pyperformance_spec, upload_results, result_tag):
             self.all_fields.append(param)
             self.forcedProperties.append(param)
 
@@ -198,6 +205,12 @@ class CPythonBenchmarkForceScheduler(CustomForceScheduler):
                 "pyperformance pip specifier must be 'pyperformance', "
                 "'pyperformance==<version>', or "
                 "'git+https://github.com/python/pyperformance@<ref>'")
+
+        result_tag = single('result_tag')
+        if not _CPYTHON_RESULT_TAG_RE.match(result_tag):
+            raise ValidationError(
+                "the archive tag may only contain letters, digits and "
+                "._- characters: %r" % result_tag)
 
         CustomForceScheduler.force(self, owner, builderNames, **kwargs)
 

@@ -1784,33 +1784,85 @@ class CPythonBenchmark2(factory.BuildFactory):
         def get_pyperformance_upload_cmd(props):
             return _upload_cmd(props, 'pyperformance_result.json')
 
+        def should_upload(step):
+            # Absent for scheduled builds, which always upload.
+            value = step.build.getProperty('upload_results')
+            if value is None:
+                return True
+            if isinstance(value, basestring):
+                return value.strip().lower() not in ('', '0', 'false', 'no')
+            return bool(value)
+
         self.addStep(UploadCmd(
             description='upload legacy results',
             command=get_legacy_upload_cmd,
             env=upload_env,
             logEnviron=False,
+            doStepIf=should_upload,
             workdir='.'))
         self.addStep(UploadCmd(
             description='upload pyperformance results',
             command=get_pyperformance_upload_cmd,
             env=upload_env,
             logEnviron=False,
+            doStepIf=should_upload,
             workdir='.'))
 
         # ---------------------------------------------------------------
-        # Archive the raw result files on the master
+        # Normalise the metadata, then archive the raw files on the master
         # ---------------------------------------------------------------
+        # After the uploads, so codespeed never sees the rewritten files.
+        self.addStep(transfer.FileDownload(
+            mastersrc=os.path.join(os.path.dirname(__file__),
+                                   'annotate_results.py'),
+            slavedest='annotate_results.py',
+            workdir='.'))
+
+        @renderer
+        def get_annotate_cmd(props):
+            cmd = ['python3', 'annotate_results.py']
+            for key, value in (
+                    ('buildbot_revision', props.getProperty('cpython_got_revision')),
+                    ('buildbot_branch', props.getProperty('cpython_branch')),
+                    ('buildbot_configure_args',
+                     props.getProperty('cpython_configure_args')),
+                    ('buildbot_variant',
+                     (props.getProperty('result_tag') or '').strip()),
+                    ('buildbot_host', host),
+                    ('buildbot_builder', props.getProperty('buildername')),
+                    ('buildbot_build_number', props.getProperty('buildnumber'))):
+                if value not in (None, ''):
+                    cmd += ['--set', '%s=%s' % (key, value)]
+            return cmd + ['benchmarks/result.json', 'pyperformance_result.json']
+
+        self.addStep(ShellCmd(
+            description='annotate result metadata',
+            command=get_annotate_cmd,
+            env=build_env,
+            haltOnFailure=False,
+            workdir='.'))
+
         # Codespeed keeps one aggregate value per benchmark; the per-iteration
         # timings, std devs and run metadata only exist in these files.
-        filename = 'cpython-%(cpython_got_revision_short)s'
-        resfile = os.path.expanduser("~/bench_results/%s-%s.json" % (filename, host))
+        # result_tag keeps a build variant's files from overwriting the ones
+        # the same commit already has: it is the only way to tell two builds
+        # of one sha apart here, the name being otherwise just the sha.
+        archive_dir = os.path.expanduser("~/bench_results")
+
+        def archive_dest(suite):
+            @renderer
+            def dest(props):
+                tag = (props.getProperty('result_tag') or '').strip()
+                return os.path.join(archive_dir, 'cpython-%s%s-%s.json' % (
+                    props.getProperty('cpython_got_revision_short'),
+                    '-' + tag if tag else '', suite))
+            return dest
+
         self.addStep(transfer.FileUpload(slavesrc="benchmarks/result.json",
-                                         masterdest=WithProperties(resfile),
+                                         masterdest=archive_dest(host),
                                          workdir="."))
-        pyresfile = os.path.expanduser(
-            "~/bench_results/%s-pyperformance.json" % filename)
         self.addStep(transfer.FileUpload(slavesrc="pyperformance_result.json",
-                                         masterdest=WithProperties(pyresfile),
+                                         masterdest=archive_dest('pyperformance'),
                                          workdir="."))
 
 
