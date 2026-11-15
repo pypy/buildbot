@@ -13,6 +13,7 @@ from buildbot.status.web.about import AboutBuildbot
 from buildbot.process.build import Build
 #from buildbot import manhole
 from pypybuildbot.pypylist import PyPyList, NumpyStatusList, ReleaseList
+from pypybuildbot.benchresults import BenchResultList
 from pypybuildbot.ircbot import IRC  # side effects
 from pypybuildbot.util import we_are_debugging, isRPython, get_master_commit
 from buildbot.changes import filter
@@ -251,7 +252,8 @@ status.putChild('summary', summary.Summary(categories=['linux',
 status.putChild('nightly', PyPyList(os.path.expanduser('~/nightly'),
                                     defaultType='application/octet-stream'))
 status.putChild('numpy-status', NumpyStatusList(os.path.expanduser('~/numpy_compat')))
-status.putChild('benchmark-results', File(os.path.expanduser('~/bench_results')))
+status.putChild('benchmark-results',
+                BenchResultList(os.path.expanduser('~/bench_results')))
 status.putChild('pypy', ReleaseList(os.path.expanduser('~/public_html/mirror')))
 # overrides the stock about page, see PyPyAboutBuildbot
 status.putChild('about', PyPyAboutBuildbot(

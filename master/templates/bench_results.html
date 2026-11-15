@@ -1,0 +1,329 @@
+{% extends "layout.html" %}
+{#
+  The listing for ~/bench_results, rendered from the rows built by
+  pypybuildbot.benchresults.  One row per archived result file.
+
+  The header row is the single source of truth for the columns: the picker and
+  the sorter are both built from its cells at load time, so adding a column
+  means adding a <th data-col="..."> and the matching <td data-col="...">, and
+  nothing else.  data-off="1" on a <th> starts that column hidden.
+
+  Sorting uses the cell's data-s attribute where the displayed text does not
+  sort correctly (a formatted size, a revision whose sortable half is the
+  commit count, a date) and the text otherwise.
+
+  Note that this environment has autoescape off (see createJinjaEnv), so every
+  value interpolated here passes through |e.  Branch names, hostnames and
+  configure lines come out of json a worker uploaded.
+#}
+{% block morehead %}
+<style>
+.bench-toolbar {
+    margin: 0.5em 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6em;
+    font-size: 90%;
+}
+.bench-toolbar input[type=search] {
+    padding: 0.2em 0.4em;
+    min-width: 18em;
+}
+.bench-count { color: #555; }
+.bench-picker {
+    display: none;
+    margin: 0.3em 0 0.8em 0;
+    padding: 0.5em 0.8em;
+    border: 1px solid #bbb;
+    background-color: #f7f7f7;
+    columns: 4 11em;
+    font-size: 90%;
+}
+.bench-picker.open { display: block; }
+.bench-picker label {
+    display: block;
+    white-space: nowrap;
+    padding: 0.1em 0;
+}
+.bench-scroll { overflow-x: auto; }
+
+table.bench {
+    border-collapse: collapse;
+    font-size: 90%;
+}
+table.bench th, table.bench td {
+    padding: 0.15em 0.5em;
+    text-align: left;
+    white-space: nowrap;
+}
+table.bench thead th {
+    background-color: #dedede;
+    border-bottom: 1px solid #aaa;
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+}
+table.bench thead th:hover { background-color: #cfcfcf; }
+table.bench thead th .arrow { color: #666; font-size: 85%; }
+table.bench tbody tr:nth-child(even) { background-color: #eee; }
+table.bench tbody tr:nth-child(odd)  { background-color: #f6f6f6; }
+table.bench tbody tr:hover { background-color: #d8e8ff; }
+table.bench td.num { text-align: right; }
+table.bench tr.bad td { color: #a00; }
+table.bench td a.commit { color: #666; text-decoration: none; }
+table.bench td a.commit:hover { color: #00f; }
+table.bench td.wide {
+    max-width: 24em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bench-empty { color: #a00; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<h1>Benchmark results</h1>
+
+<p>Raw result files archived by the benchmark builders: the per-iteration
+timings, standard deviations and run metadata that
+<a href="http://speed.pypy.org/">speed.pypy.org</a> does not keep.  The
+<i>legacy</i> suite is the one <tt>runner.py</tt> drives,
+<i>pyperformance</i> is pyperf's own format.</p>
+
+<div class="bench-toolbar">
+  <input type="search" id="bench-filter" placeholder="filter rows (e.g. py3.12 pyperformance)" />
+  <button type="button" id="bench-columns">Columns &#9662;</button>
+  <span class="bench-count" id="bench-count"></span>
+  <a href="#" id="bench-reset">reset</a>
+</div>
+
+<div class="bench-picker" id="bench-picker"></div>
+
+<div class="bench-scroll">
+<table class="bench" id="bench">
+<thead>
+<tr>
+  <th data-col="rev">Revision</th>
+  <th data-col="interp">Interp</th>
+  <th data-col="bits" data-off="1">Bits</th>
+  <th data-col="branch">Branch</th>
+  <th data-col="version">Version</th>
+  <th data-col="suite">Suite</th>
+  <th data-col="jit">JIT</th>
+  <th data-col="variant" data-off="1">Variant</th>
+  <th data-col="nbench" data-off="1">Benchmarks</th>
+  <th data-col="host" data-off="1">Machine</th>
+  <th data-col="cpu" data-off="1">CPU</th>
+  <th data-col="suitever" data-off="1">Suite ver</th>
+  <th data-col="date">Date</th>
+  <th data-col="commitdate" data-off="1">Commit date</th>
+  <th data-col="size" data-off="1">Size</th>
+  <th data-col="build" data-off="1">Build</th>
+  <th data-col="configure" data-off="1">Configure</th>
+  <th data-col="file" data-off="1">File</th>
+</tr>
+</thead>
+<tbody>
+{% for r in rows %}
+  {#- Cells carry no data-col: there are thousands of rows and that attribute
+      alone was close to a megabyte of html.  The columns are addressed by
+      position instead, which the picker and the sorter both have anyway. -#}
+  <tr{% if r.bad %} class="bad" title="unreadable or empty result file"{% endif %}>
+  {#- The revision links to the result file -- that is what the row is about,
+      and the File column is off by default.  The commit on the forge is the
+      little arrow after it. -#}
+  <td data-s="{{ r.sortrev }}"><a href="{{ r.href|e }}">{{ r.short_rev|e }}</a>
+    {%- if r.commit_url %} <a class="commit" href="{{ r.commit_url|e }}" title="commit">&#8599;</a>{% endif -%}
+  </td>
+  <td>{{ r.interp|e }}</td>
+  <td>{{ r.bits|e }}</td>
+  <td>{{ r.branch|e }}</td>
+  <td{% if r.version_full and r.version_full != r.version %} title="{{ r.version_full|e }}"{% endif %}>{{ r.version|e }}</td>
+  <td>{{ r.suite|e }}</td>
+  <td>{{ r.jit|e }}</td>
+  <td>{{ r.variant|e }}</td>
+  <td class="num">{{ r.nbench|e }}</td>
+  <td>{{ r.host|e }}</td>
+  <td class="wide">{{ r.cpu|e }}</td>
+  <td>{{ r.suite_version|e }}</td>
+  <td data-s="{{ r.mtime }}">{{ r.date|e }}</td>
+  <td>{{ r.commit_date|e }}</td>
+  <td class="num" data-s="{{ r.bytes }}">{{ r.size|e }}</td>
+  <td data-s="{{ r.build_number }}">
+    {%- if r.build_url %}<a href="{{ path_to_root }}builders/{{ r.build_url|e }}">#{{ r.build_number|e }}</a>
+    {%- elif r.build_number %}#{{ r.build_number|e }}{% endif -%}
+  </td>
+  <td class="wide"{% if r.configure_args %} title="{{ r.configure_args|e }}"{% endif %}>{{ r.configure_args|e }}</td>
+  <td><a href="{{ r.href|e }}" title="{{ r.filename|e }}">json</a></td>
+  </tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% if not rows %}
+<p class="bench-empty">No result files in this directory.</p>
+{% endif %}
+
+<script>
+(function () {
+    var table = document.getElementById('bench');
+    var tbody = table.tBodies[0];
+    var heads = [].slice.call(table.tHead.rows[0].cells);
+    var rows = [].slice.call(tbody.rows);
+    var STORE = 'bench_results.columns';
+
+    /* Hidden columns are hidden with one injected rule per column rather than
+       by touching cells: there are tens of thousands of cells, and a style
+       sheet applies to all of them at once.  Addressed by position, since the
+       cells carry no column name of their own. */
+    var sheet = document.createElement('style');
+    document.head.appendChild(sheet);
+    var hidden = {};
+
+    function applyColumns() {
+        var rules = [];
+        heads.forEach(function (th, i) {
+            if (hidden[th.getAttribute('data-col')]) {
+                rules.push('#bench tr>*:nth-child(' + (i + 1) + '){display:none}');
+            }
+        });
+        sheet.textContent = rules.join('\n');
+        try {
+            localStorage.setItem(STORE, JSON.stringify(hidden));
+        } catch (e) { /* private mode, or storage off: columns just won't stick */ }
+    }
+
+    function defaultColumns() {
+        hidden = {};
+        heads.forEach(function (th) {
+            if (th.getAttribute('data-off')) {
+                hidden[th.getAttribute('data-col')] = true;
+            }
+        });
+    }
+
+    defaultColumns();
+    try {
+        var saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+        if (saved && typeof saved === 'object') { hidden = saved; }
+    } catch (e) { /* keep the defaults */ }
+
+    /* The picker, built from the header cells. */
+    var picker = document.getElementById('bench-picker');
+    heads.forEach(function (th) {
+        var col = th.getAttribute('data-col');
+        var label = document.createElement('label');
+        var box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = !hidden[col];
+        box.addEventListener('change', function () {
+            if (box.checked) { delete hidden[col]; } else { hidden[col] = true; }
+            applyColumns();
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(' ' + th.textContent.trim()));
+        picker.appendChild(label);
+    });
+    applyColumns();
+
+    document.getElementById('bench-columns').addEventListener('click', function () {
+        picker.classList.toggle('open');
+    });
+
+    document.getElementById('bench-reset').addEventListener('click', function (ev) {
+        ev.preventDefault();
+        defaultColumns();
+        applyColumns();
+        [].forEach.call(picker.getElementsByTagName('input'), function (box, i) {
+            box.checked = !hidden[heads[i].getAttribute('data-col')];
+        });
+        filter.value = '';
+        runFilter();
+    });
+
+    /* Sorting.  A cell sorts on its data-s attribute when it has one, so the
+       revision sorts by commit count, the size by bytes and the date by
+       mtime, not by how they are printed. */
+    function keyOf(row, index) {
+        var cell = row.cells[index];
+        var raw = cell.getAttribute('data-s');
+        if (raw === null) { raw = cell.textContent.trim(); }
+        return raw;
+    }
+
+    function comparator(index, dir) {
+        return function (a, b) {
+            var x = keyOf(a, index), y = keyOf(b, index);
+            var nx = parseFloat(x), ny = parseFloat(y);
+            var numeric = !isNaN(nx) && !isNaN(ny) &&
+                          String(nx) === x && String(ny) === y;
+            if (numeric) { return dir * (nx - ny); }
+            /* Blanks last, whichever way the column is sorted. */
+            if (x === '' && y !== '') { return 1; }
+            if (y === '' && x !== '') { return -1; }
+            if (x === y) { return 0; }
+            return dir * (x < y ? -1 : 1);
+        };
+    }
+
+    var sortIndex = -1, sortDir = 0;
+
+    function sortBy(index) {
+        if (index === sortIndex) {
+            sortDir = -sortDir;
+        } else {
+            sortIndex = index;
+            sortDir = -1;          /* first click on a column: biggest first */
+        }
+        rows.sort(comparator(index, sortDir));
+        var frag = document.createDocumentFragment();
+        rows.forEach(function (row) { frag.appendChild(row); });
+        tbody.appendChild(frag);
+        heads.forEach(function (th, i) {
+            var arrow = th.getElementsByClassName('arrow')[0];
+            if (arrow) { th.removeChild(arrow); }
+            if (i === index) {
+                var span = document.createElement('span');
+                span.className = 'arrow';
+                span.textContent = sortDir < 0 ? ' ▼' : ' ▲';
+                th.appendChild(span);
+            }
+        });
+    }
+
+    heads.forEach(function (th, i) {
+        th.addEventListener('click', function () { sortBy(i); });
+    });
+
+    /* Filter: every space separated word must appear somewhere in the row.
+       Matching is against the whole row, hidden columns included, so a
+       filter keeps working when a column is switched off. */
+    var filter = document.getElementById('bench-filter');
+    var count = document.getElementById('bench-count');
+    var haystacks = rows.map(function (row) {
+        return row.textContent.toLowerCase().replace(/\s+/g, ' ');
+    });
+
+    function runFilter() {
+        var words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+        var shown = 0;
+        rows.forEach(function (row, i) {
+            var hay = haystacks[i];
+            var ok = words.every(function (w) { return hay.indexOf(w) !== -1; });
+            row.style.display = ok ? '' : 'none';
+            if (ok) { shown++; }
+        });
+        count.textContent = shown === rows.length
+            ? rows.length + ' files'
+            : shown + ' of ' + rows.length + ' files';
+    }
+
+    filter.addEventListener('input', runFilter);
+    runFilter();
+})();
+</script>
+
+{% endblock %}
