@@ -1280,13 +1280,35 @@ if failed:
     sys.exit("FAILED: " + ", ".join(failed))
 """
 
+        # pyperformance does not run bm_dask (the only user of cloudpickle)
+        # on python < 3.12, so there is nothing to patch there.
+        _patch_min_version = {
+            'patch_bm_dask_pypy.py': (3, 12),
+            'patch_cloudpickle_pypy.py': (3, 12),
+        }
+
+        def _target_version(props):
+            # the goal name carries the version, e.g. .../goal/pypy3.11-c
+            name = os.path.basename(props.getProperty('target_path') or '')
+            match = re.match(r'pypy(\d+)\.(\d+)', name)
+            if match:
+                return (int(match.group(1)), int(match.group(2)))
+            return None
+
         @renderer
         def get_apply_patches_cmd(props):
+            version = _target_version(props)
             patches = []
             for path in sorted(glob.glob(
                     os.path.join(_patches_dir, 'patch_*_pypy.py'))):
+                name = os.path.basename(path)
+                min_version = _patch_min_version.get(name)
+                if version and min_version and version < min_version:
+                    print('skipping %s: needs python >= %d.%d, target is %d.%d'
+                          % ((name,) + min_version + version))
+                    continue
                 with open(path) as f:
-                    patches.append((os.path.basename(path), f.read()))
+                    patches.append((name, f.read()))
             payload = base64.b64encode(
                 json.dumps(patches).encode('utf-8')).decode('ascii')
             return ['python3', '-c',
